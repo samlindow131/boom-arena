@@ -439,13 +439,14 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_BINDS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sprint: 'ShiftLeft', crouch: 'KeyC', crouchHold: 'ControlLeft',
   fire: 'Mouse0', ads: 'Mouse2', reload: 'KeyR', primary: 'Digit1', secondary: 'Digit2', swap: 'KeyQ', inspect: 'KeyF', melee: 'KeyV', grenade: 'KeyG', tactical: 'KeyT', breath: 'ShiftLeft', scoreboard: 'Tab',
-  ksUav: 'Digit3', ksCuav: 'Digit4', ksAir: 'Digit5', plate: 'KeyX',
+  ksUav: 'Digit3', ksCuav: 'Digit4', ksAir: 'Digit5', plate: 'KeyX', interact: 'KeyE', map: 'KeyM',
 };
 const BIND_LABELS = {
   forward: 'Move forward', back: 'Move back', left: 'Move left', right: 'Move right', jump: 'Jump / vault / climb', sprint: 'Sprint (double-tap: tactical sprint)', crouch: 'Crouch (toggle) / slide',
   crouchHold: 'Crouch (hold) / slide', fire: 'Shoot', ads: 'Aim down sights', reload: 'Reload', primary: 'Primary weapon', secondary: 'Secondary weapon',
   swap: 'Swap weapon', inspect: 'Inspect weapon', melee: 'Melee', grenade: 'Lethal: frag (hold to cook) / claymore', tactical: 'Tactical: flashbang / smoke', breath: 'Hold breath (scoped)', scoreboard: 'Scoreboard',
-  ksUav: 'Killstreak: UAV', ksCuav: 'Killstreak: Counter-UAV', ksAir: 'Killstreak: Airstrike', plate: 'Armor plate (hold, Mini Warzone)',
+  ksUav: 'Killstreak: UAV', ksCuav: 'Killstreak: Counter-UAV', ksAir: 'Killstreak: Airstrike', plate: 'Armor plate (hold, Warzone modes)',
+  interact: 'Interact: pick up, open, buy (Battle Royale)', map: 'Island map (Battle Royale)',
 };
 const S = Object.assign({}, DEFAULT_SETTINGS, (() => { try { return JSON.parse(store.get('boomSettings', '{}')) || {}; } catch (e) { return {}; } })());
 const BINDS = Object.assign({}, DEFAULT_BINDS, (() => { try { return JSON.parse(store.get('boomBinds', '{}')) || {}; } catch (e) { return {}; } })());
@@ -507,6 +508,7 @@ let tacticalSel = (v => EQUIP[v] && EQUIP[v].slot === 'tactical' ? v : 'flash')(
 const SLOT_NAME = { optic: 'Optic', muzzle: 'Muzzle', under: 'Underbarrel', mag: 'Magazine' };
 const attName = (id, w) => id === 'builtin' ? (w.model === 'ar' ? 'Holo sight' : 'Red dot') : ATT_INFO[id].name;
 function getAtt(w) {
+  const o = brAttOverride(w); if (o) return o;
   const slots = ATT_SLOTS[w.model] || {}, sel = attSel[w.id] || {}, k = wkills[w.id] || 0, out = {};
   for (const s in slots) { const id = sel[s]; out[s] = slots[s].includes(id) && k >= (ATT_INFO[id].unlock || 0) ? id : slots[s][0]; }
   return out;
@@ -3243,7 +3245,7 @@ const guns = WEAPONS.map(w => { const g = buildGun(w.model, true, skinSel[w.id],
 function rebuildViewmodel(i) {
   const old = guns[i], vis = old.visible;
   vmRoot.remove(old);
-  guns[i] = buildGun(WEAPONS[i].model, true, skinSel[WEAPONS[i].id], getAtt(WEAPONS[i])); guns[i].visible = vis; vmRoot.add(guns[i]);
+  guns[i] = buildGun(WEAPONS[i].model, true, brCamoOverride(i) || skinSel[WEAPONS[i].id], getAtt(WEAPONS[i])); guns[i].visible = vis; vmRoot.add(guns[i]);
 }
 
 // =====================================================================
@@ -3622,7 +3624,7 @@ function pickSpawn(self) {
       if (d < 60 && clearLine(eye(f, _sp1), _sp2)) seen++;
     }
     let score = Math.min(md, 35) - seen*18 + mate + Math.random()*6;
-    if (MODE === 'wz' && Math.hypot(s[0] - gas.cx, s[1] - gas.cz) > gas.r - 3) score -= 200;   // never redeploy into the gas
+    if ((MODE === 'wz' || MODE === 'br') && Math.hypot(s[0] - gas.cx, s[1] - gas.cz) > gas.r - 3) score -= 200;   // never redeploy into the gas
     if (score > bs) { bs = score; best = s; }
   }
   return best;
@@ -3752,6 +3754,7 @@ const mapCtx = $('mapwrap').getContext('2d');
 let mapFrame = 0;
 let mapLayer = null;
 function drawMap() {
+  if (BR.on) return brDrawMap();
   const c = mapCtx, S = 176, sc = S / 50;
   if (!mapLayer) mapLayer = mk(Math.ceil(ARENA*2*sc) + 2, 0, (g, w) => {
     g.translate(w/2, w/2);
@@ -3806,7 +3809,7 @@ function updateHUD(dt) {
   put('hpfill', 'style.background', hp > 50 ? 'linear-gradient(90deg,#2fd67a,#8ff5b5)' : hp > 25 ? 'linear-gradient(90deg,#f5a623,#ffd27a)' : 'linear-gradient(90deg,#e74c3c,#ff8a7a)');
   put('hpnum', 'textContent', Math.ceil(hp));
   put('wname', 'innerHTML', `${w.name} <span style="opacity:.55">· ${w.cls}</span>`);
-  put('ammo', 'innerHTML', `<span style="color:${mags[weapon] <= Math.ceil(w.mag/4) ? '#ff6b5a' : '#fff'}">${mags[weapon]}</span><small>/ ${w.mag}</small>`);
+  put('ammo', 'innerHTML', `<span style="color:${mags[weapon] <= Math.ceil(w.mag/4) ? '#ff6b5a' : '#fff'}">${mags[weapon]}</span><small>/ ${BR.on ? brReserve(weapon) : w.mag}</small>`);
   put('reload', 'style.opacity', reloading ? 1 : 0);
   if (reloading) $('reload').firstChild.style.transform = `scaleX(${((now - reloadStart) / (reloadUntil - reloadStart)).toFixed(3)})`;
   put('cook', 'style.opacity', cookStart >= 0 && cookKind === 'frag' ? 1 : 0);
@@ -3818,11 +3821,12 @@ function updateHUD(dt) {
     $('nades').innerHTML = `<small>${btnName('grenade')}</small>${icons(curLethal, nades)}<small style="margin-left:9px">${btnName('tactical')}</small>${icons(curTac, tacs)}`;
   }
   const ggHud = MODE === 'gun' && !NET.on;
-  const skKey = ggHud ? 'gg' + (player.gg || 0) : STREAKS.map(k => (ksReady[k.id] ? 1 : 0) + btnName(k.bind)).join() + '|' + Math.min(streak, 6) + '|' + designating;
+  const skKey = BR.on ? 'br' + STREAKS.map(k => ksReady[k.id] ? 1 : 0).join('') + btnName('ksUav') + designating : ggHud ? 'gg' + (player.gg || 0) : STREAKS.map(k => (ksReady[k.id] ? 1 : 0) + btnName(k.bind)).join() + '|' + Math.min(streak, 6) + '|' + designating;
   if (hudCache.sk !== skKey) {
     hudCache.sk = skKey;
     // Gun Game shows the gun ladder where the killstreaks usually go
-    if (ggHud) $('streaks').innerHTML = GG_SEQ.map((wid, i) => i < ggLevel(player) ? '' : `<div class="${i === ggLevel(player) ? 'on' : ''}"><b>${i + 1}</b>${WEAPONS[wid].name.toUpperCase()}</div>`).reverse().join('') + `<small>${GG_SEQ.length*GG_PER - (player.gg || 0)} KILLS TO WIN</small>`;
+    if (BR.on) $('streaks').innerHTML = STREAKS.filter(k => ksReady[k.id]).map(k => `<div class="ready${k.id === 'air' && designating ? ' on' : ''}"><b>${btnName(k.bind)}</b>${k.name.toUpperCase()}</div>`).join('');
+    else if (ggHud) $('streaks').innerHTML = GG_SEQ.map((wid, i) => i < ggLevel(player) ? '' : `<div class="${i === ggLevel(player) ? 'on' : ''}"><b>${i + 1}</b>${WEAPONS[wid].name.toUpperCase()}</div>`).reverse().join('') + `<small>${GG_SEQ.length*GG_PER - (player.gg || 0)} KILLS TO WIN</small>`;
     else $('streaks').innerHTML = STREAKS.map(k => `<div class="${ksReady[k.id] ? 'ready' : ''}${k.id === 'air' && designating ? ' on' : ''}"><b>${ksReady[k.id] ? btnName(k.bind) : k.n}</b>${k.name.toUpperCase()}</div>`).join('') + `<small>STREAK ${streak}</small>`;
   }
   put('euav', 'style.opacity', player.alive && enemyUavUp() ? 1 : 0);
@@ -3847,11 +3851,12 @@ function updateHUD(dt) {
   put('breath', 'style.display', scoped && S.scopeSway ? 'block' : 'none');
   if (scoped) put('breathbar', 'style.width', Math.round(breath*20)*5 + '%');
   const t = Math.max(0, Math.ceil(matchTime));
-  put('timer', 'textContent', `${Math.floor(t/60)}:${String(t % 60).padStart(2, '0')}`);
+  if (!BR.on) put('timer', 'textContent', `${Math.floor(t/60)}:${String(t % 60).padStart(2, '0')}`);
   const ksum = fighters.reduce((a, f) => a + f.kills*31 + f.deaths, 0);
   if (hudCache.ksum !== ksum || !hudCache.st) { hudCache.ksum = ksum; hudCache.st = standings(); }
   const s = hudCache.st, lead = s[0].isPlayer ? s[1] : s[0];
-  if (MODE === 'wz') {
+  if (BR.on) brTopHUD();
+  else if (MODE === 'wz') {
     put('me', 'innerHTML', `ALIVE <b style="font-size:22px">${wzAlive()}</b><span style="opacity:.6">/ ${fighters.length}</span>`);
     put('lead', 'innerHTML', `KILLS <b style="font-size:22px">${player.kills}</b>`);
   } else if (teamMode()) {
@@ -3914,7 +3919,7 @@ function damage(v, amt, a, head, how) {
   if (NET.on) return;   // online every hit is decided by the server (see netHurt / the 'kill' event)
   if (v === player) drHit(a, amt); else if (a === player) drDealt(v, amt);
   if (a === player && v !== player) hmArmor = false;
-  if (MODE === 'wz' && v.armor > 0 && how !== 'Gas') {
+  if ((MODE === 'wz' || MODE === 'br') && v.armor > 0 && how !== 'Gas') {
     const soak = Math.min(v.armor, amt); v.armor -= soak; amt -= soak;
     if (a === player && v !== player) { hmArmor = true; if (v.armor <= 0) { mech('armorBreak', 0, .7); centerMsg2('ARMOR BROKEN'); } }
     if (v === player && v.armor <= 0) mech('armorBreak', 0, .5);
@@ -3931,12 +3936,12 @@ function damage(v, amt, a, head, how) {
     thud(300, .1, .5); if (a && a !== v) damageIndicator(a);
     rumble(Math.min(1, amt/45), Math.min(1, amt/30), 160);
   } else if (a && a !== v && enemies(a, v) && (!v.sees || Math.random() < .5)) { v.target = a; v.reactAt = Math.min(v.reactAt, now + .25); }
-  if (v.hp <= 0) kill(v, a, head, how);
+  if (v.hp <= 0 && !(BR.on && brDown(v, a, head, how))) kill(v, a, head, how);   // Trios: down instead of dead while a squadmate's up
 }
 let streak = 0, firstBlood = false;
 function kill(v, a, head, how) {
   v.alive = false; v.hp = 0; v.deaths++; v.dieT = now;
-  v.respawnAt = NET.on ? Infinity : MODE === 'wz' ? (gas.respawnsOff ? Infinity : now + 5) : now + RESPAWN;   // Mini Warzone: redeploy until respawns switch off
+  v.respawnAt = NET.on || MODE === 'br' ? Infinity : MODE === 'wz' ? (gas.respawnsOff ? Infinity : now + 5) : now + RESPAWN;   // Mini Warzone: redeploy until respawns switch off
   if (MODE === 'wz' && !NET.on) dropLoot(v);
   const self = !a || a === v, vStreak = v.streak || 0;
   v.streak = 0;
@@ -3971,13 +3976,14 @@ function kill(v, a, head, how) {
     streak++; hitmarker(true);
     if (S.hitSounds) { tone(880, .12, .12, 'triangle'); setTimeout(() => tone(1320, .16, .1, 'triangle'), 70); }
     playerKillRewards(v, head, how, vStreak);
-    if (!NET.on && MODE !== 'gun') for (const k of STREAKS) if (streak === k.n && !ksReady[k.id]) {
+    if (!NET.on && MODE !== 'gun' && MODE !== 'br') for (const k of STREAKS) if (streak === k.n && !ksReady[k.id]) {
       ksReady[k.id] = true;
       later(.9, () => { centerMsg(`${k.name.toUpperCase()} READY · PRESS ${btnName(k.bind).toUpperCase()}`); say(`${k.name} ready`); });
     }
-  } else if (!self && !a.isPlayer && !a.remote && MODE !== 'gun') botStreak(a);
+  } else if (!self && !a.isPlayer && !a.remote && MODE !== 'gun' && MODE !== 'br') botStreak(a);
   if (!self) firstBlood = true;
   if (MODE === 'gun' && !NET.on) ggKill(v, a, self, how);
+  if (MODE === 'br' && !NET.on) brOnKill(v, a, self, how);
   if (NET.on) return;   // online the server keeps score and ends the match
   checkWin(a);
   if (MODE === 'wz') wzCheckEnd();
@@ -3995,6 +4001,7 @@ function falloff(w, dist) { const [a, b] = w.range; return dist <= a ? 1 : Math.
 function startReload() {
   const w = WEAPONS[weapon];
   if (now < reloadUntil || mags[weapon] >= w.mag || !player.alive || player.mantle || cookStart >= 0 || throwT > 0 || meleeT > 0) return;
+  if (BR.on && brReserve(weapon) <= 0) { centerMsg2('NO AMMO · FIND SOME OR BUY IT'); mech('dry'); return; }
   reloadEmpty = mags[weapon] === 0; reloadStart = now; inspectT = 0; action = null;
   if (NET.on) netSend({ t: 'reload', w: weapon });
   if (w.shellReload) { reloadUntil = now + w.reload*(reloadEmpty ? 1.35 : 1); mech('shell', (reloadUntil - now)*.6); return; }
@@ -4007,10 +4014,11 @@ function startReload() {
 function finishReloadStep() {
   const w = WEAPONS[weapon];
   if (w.shellReload) {
+    if (BR.on && brTake(weapon, 1) < 1) { reloadUntil = 0; return; }
     mags[weapon]++;
-    if (mags[weapon] < w.mag && !firing && shotQueued < 0) { reloadStart = now; reloadUntil = now + w.reload; mech('shell', w.reload*.6); }
+    if (mags[weapon] < w.mag && !firing && shotQueued < 0 && (!BR.on || brReserve(weapon) > 0)) { reloadStart = now; reloadUntil = now + w.reload; mech('shell', w.reload*.6); }
     else { reloadUntil = 0; if (reloadEmpty) { mech('pump'); action = { type: 'pump', t0: now, dur: .5 }; nextShot = Math.max(nextShot, now + .45); } }
-  } else { mags[weapon] = w.mag; reloadUntil = 0; }
+  } else { mags[weapon] += BR.on ? brTake(weapon, w.mag - mags[weapon]) : w.mag - mags[weapon]; reloadUntil = 0; }
 }
 const _v2 = new THREE.Vector2(), _m = V(), _end = V();
 function playerShoot() {
@@ -4099,6 +4107,7 @@ function switchWeapon(i) {
   mech('switch');
 }
 function equipLoadout() {
+  if (BR.on) { brEquip(); return; }
   const gg = MODE === 'gun' && !NET.on;
   loadout = gg ? [GG_SEQ[ggLevel(player)], GG_SEQ[ggLevel(player)]] : [...pendingLoadout];
   mags = WEAPONS.map(w => w.mag); action = null; reloadUntil = 0; inspectT = 0;
@@ -4116,14 +4125,16 @@ const MODES = {
   dom: { name: 'Domination', desc: 'Capture and hold flags A, B and C. Every flag you hold scores over time.', teams: true },
   wz: { name: 'Mini Warzone', desc: 'Battle royale: armor plates, a closing gas circle, respawns until the circle gets tight. Last one standing wins.' },
   gun: { name: 'Gun Game', desc: 'Every two kills hand you the next gun, SMG down to pistol. A rifle-butt kill knocks your victim back a gun. First through every gun wins.' },
+  br: { name: 'Battle Royale', desc: '24 players drop onto Crestfall Island. Loot, cash, buy stations, contracts, the Gulag and a closing circle. Last one standing wins.' },
 };
-let MODE = (m => MODES[m] ? m : 'ffa')(store.get('boomMode', 'ffa'));
+// Battle Royale is played on its own island: the island only ever runs Battle Royale
+let MODE = (m => MAPDEF.br ? 'br' : MODES[m] && m !== 'br' ? m : 'ffa')(store.get('boomMode', 'ffa'));
 const teamMode = () => !!MODES[MODE].teams;
 // team 0 is always yours
 const TEAM = [{ name: 'RANGERS', color: '#4fb0ff', tint: 0x3d8bff }, { name: 'RAIDERS', color: '#ff5a48', tint: 0xff4433 }];
 const teamScore = [0, 0];
-const enemies = (a, b) => a !== b && (!teamMode() || a.team !== b.team);
-const modeLimit = () => MODE === 'wz' ? 999 : MODE === 'gun' ? GG_SEQ.length*GG_PER : MODE === 'ffa' ? S.scoreLimit : MODE === 'dom' ? ({ 3: 150, 5: 250, 10: 450 }[S.timeLimit] || 200) : Math.round(S.scoreLimit*2.5);
+const enemies = (a, b) => a !== b && (!teamMode() || a.team !== b.team) && (!BR.on || brZoneOk(a, b));
+const modeLimit = () => MODE === 'wz' || MODE === 'br' ? 999 : MODE === 'gun' ? GG_SEQ.length*GG_PER : MODE === 'ffa' ? S.scoreLimit : MODE === 'dom' ? ({ 3: 150, 5: 250, 10: 450 }[S.timeLimit] || 200) : Math.round(S.scoreLimit*2.5);
 // ---- Gun Game: two kills per gun, down the list from SMG to pistol. Your score is your progress. ----
 const GG_SEQ = ['smg', 'ar', 'lmg', 'dmr', 'shotgun', 'sniper', 'magnum', 'pistol'].map(id => WID[id]), GG_PER = 2;
 const ggLevel = f => Math.min(GG_SEQ.length - 1, Math.floor((f.gg || 0)/GG_PER));
@@ -4354,6 +4365,10 @@ function botObjective(b) {
       for (const L of loot) { const d = Math.hypot(L.x - b.pos.x, L.z - b.pos.z) + Math.abs(L.y - b.pos.y)*2; if (d < bw && Math.hypot(L.x - gas.cx, L.z - gas.cz) < gas.r) { bw = d; best = L; } }
       if (best) { key = 'loot' + best.id; gx = best.x; gy = best.y; gz = best.z; }
     }
+  } else if (MODE === 'br') {
+    const g = brBotGoal(b);
+    b.urgent = !!(g && g.urgent);
+    if (g) { key = g.key; gx = g.x; gy = g.y; gz = g.z; }
   } else if (MODE === 'dom') {
     let best = null, bw = Infinity;
     for (const fl of flags) {
@@ -4477,21 +4492,22 @@ function updateLoot() {
   }
 }
 function startPlating() {
-  if (MODE !== 'wz' || !running || !player.alive || plating || player.plates <= 0 || player.armor >= 150 || cookStart >= 0 || throwT > 0 || meleeT > 0 || player.mantle || designating) return;
+  if ((MODE !== 'wz' && MODE !== 'br') || !running || !player.alive || plating || player.plates <= 0 || player.armor >= 150 || cookStart >= 0 || throwT > 0 || meleeT > 0 || player.mantle || designating) return;
   plating = { t0: now }; inspectT = 0; if (now < reloadUntil) reloadUntil = 0; tacUntil = Math.min(tacUntil, now); mech('plateStart');
 }
 function updateWzHUD() {
-  const on = MODE === 'wz';
+  const on = MODE === 'wz' || (MODE === 'br' && BR.on);
   put('armor', 'style.display', on ? 'flex' : 'none'); put('plates', 'style.display', on ? 'block' : 'none'); put('wzinfo', 'style.display', on ? 'block' : 'none');
   if (!on) { put('gasov', 'style.opacity', 0); put('platebar', 'style.opacity', 0); return; }
   const ar = player.armor || 0, segs = $('armor').children;
   const ak = Math.round(ar);
   if (hudCache.ar !== ak) { hudCache.ar = ak; for (let i = 0; i < 3; i++) segs[i].firstChild.style.transform = `scaleX(${clamp((ar - 50*i)/50, 0, 1).toFixed(3)})`; }
-  put('plates', 'innerHTML', `ARMOR PLATES <b>${player.plates || 0}</b>/5 &nbsp;<span style="opacity:.6">hold ${btnName('plate')}</span>`);
-  const ph = WZ.phases[gas.phase], left = Math.max(0, Math.ceil((gas.state === 'wait' ? ph[0] : ph[1]) - (now - gas.t0)));
+  put('plates', 'innerHTML', `ARMOR PLATES <b>${player.plates || 0}</b>/${player.maxPlates || 5} &nbsp;<span style="opacity:.6">hold ${btnName('plate')}</span>`);
+  const ph = BR.on ? BR_GAS.phases[gas.phase] : WZ.phases[gas.phase], left = Math.max(0, Math.ceil((gas.state === 'wait' ? ph[0] : ph[1]) - (now - gas.t0)));
   const tm = `${Math.floor(left/60)}:${String(left % 60).padStart(2, '0')}`;
-  put('wzinfo', 'innerHTML', `${gas.state === 'close' ? `<span class="gasw">GAS CLOSING ${tm}</span>` : `NEXT CIRCLE ${tm}`} &nbsp;·&nbsp; ${gas.respawnsOff ? '<span class="gasw">NO RESPAWNS</span>' : 'RESPAWNS ON'}`);
-  const inGas = player.alive && Math.hypot(player.pos.x - gas.cx, player.pos.z - gas.cz) > gas.r;
+  if (BR.on) { if (!(BR.duel && BR.duel.cap > 0)) put('wzinfo', 'innerHTML', brInfoText()); }
+  else put('wzinfo', 'innerHTML', `${gas.state === 'close' ? `<span class="gasw">GAS CLOSING ${tm}</span>` : `NEXT CIRCLE ${tm}`} &nbsp;·&nbsp; ${gas.respawnsOff ? '<span class="gasw">NO RESPAWNS</span>' : 'RESPAWNS ON'}`);
+  const inGas = player.alive && Math.hypot(player.pos.x - gas.cx, player.pos.z - gas.cz) > gas.r && (!BR.on || player.brZone === 'island' || player.brZone === 'air');
   put('gasov', 'style.opacity', inGas ? 1 : 0);
   put('platebar', 'style.opacity', plating ? 1 : 0);
   if (plating) $('platebar').firstChild.style.transform = `scaleX(${clamp((now - plating.t0)/PLATE_TIME, 0, 1).toFixed(3)})`;
@@ -4792,6 +4808,10 @@ const CH_POOL = [
   { id: 'ks', text: n => `Call in ${n} killstreaks`, n: [2, 4], xp: 2000, stat: 'killstreak' },
   { id: 'play', text: n => `Play ${n} matches`, n: [3, 5], xp: 1500, stat: 'matches' },
   { id: 'top3', text: () => 'Finish top 3 in Mini Warzone', n: [1, 1], xp: 3000, stat: 'wzTop3' },
+  { id: 'brwin', text: () => 'Win a Battle Royale', n: [1, 1], xp: 5000, stat: 'brWins' },
+  { id: 'brtop', text: n => `Make the top 5 in Battle Royale ${n === 1 ? 'once' : n + ' times'}`, n: [1, 2], xp: 3000, stat: 'brTop5' },
+  { id: 'brbox', text: n => `Open ${n} supply boxes`, n: [8, 15], xp: 2000, stat: 'brBoxes' },
+  { id: 'brjob', text: n => `Complete ${n} contracts`, n: [2, 4], xp: 2500, stat: 'brContracts' },
 ];
 const dayKey = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
 let daily = (() => { try { return JSON.parse(store.get('boomDaily', 'null')); } catch (e) { return null; } })();
@@ -4871,6 +4891,9 @@ function renderModes() {
   [...$('modes').children].forEach(b => b.onclick = () => {
     if (b.dataset.mode === MODE) return;
     if (NET.on) { centerMsg('LEAVE ONLINE PLAY TO CHANGE MODE'); return; }
+    // Battle Royale lives on its own island: switching in or out of it loads the right map
+    if (b.dataset.mode === 'br' && !MAPDEF.br) { store.set('boomMode', 'br'); store.set('boomMapPrev', MAP_ID); store.set('boomMap', 'island'); $('play').textContent = 'Loading Crestfall Island…'; location.reload(); return; }
+    if (b.dataset.mode !== 'br' && MAPDEF.br) { store.set('boomMode', b.dataset.mode); store.set('boomMap', (m => MAP_INFO[m] && !MAP_INFO[m].br ? m : 'yard')(store.get('boomMapPrev', 'yard'))); $('play').textContent = 'Loading…'; location.reload(); return; }
     MODE = b.dataset.mode; store.set('boomMode', MODE);
     if (started && !matchOver) { started = false; $('play').textContent = 'Play'; }   // a new mode starts a fresh match
     $('results').innerHTML = ''; $('keys').style.display = '';
@@ -5232,6 +5255,7 @@ function crouchPressed(toggle) {
 }
 function updatePlayer(dt) {
   if (!player.alive) { if (!NET.on && now >= player.respawnAt) respawn(player); return; }
+  if (brPlayerAir(dt)) return;   // Battle Royale: in the plane, skydiving, shopping or waiting for a Gulag fight
   // safety net: anything that ever ends up outside the world comes straight back
   if (player.pos.y < -6 || !isFinite(player.pos.x + player.pos.y + player.pos.z)) { respawn(player); return; }
   const P = player, fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw), { f, s: mvS, mx, mz, len, mag } = moveInput();
@@ -5418,6 +5442,7 @@ function botThrow(b, tp) {
 }
 function updateBot(b, dt) {
   if (b.remote && !netAvatar(b)) return;   // another player's soldier: moved by the network
+  if (brBotAir(b, dt)) return;              // Battle Royale: in the plane, in the air, in the Gulag queue
   if (b.alive && !b.remote && (b.pos.y < -6 || !isFinite(b.pos.x + b.pos.y + b.pos.z))) respawn(b);
   if (!b.alive) {
     const k = Math.min(1, (now - b.dieT) / .45), e = 1 - Math.pow(1 - k, 3);
@@ -5435,9 +5460,11 @@ function updateBot(b, dt) {
     let best = null, bs = 1e9, bestVis = false;
     for (const f of fighters) {
       if (!f.alive || !enemies(b, f)) continue;
+      if (BR.on && brFar(b, f)) continue;
       const vis = los(b, f);
       let d = b.pos.distanceTo(f.pos);
       if (!vis) d += 30;
+      if (f.downed) d += 25;   // someone downed is no threat: finish them only when nothing else is around
       if (f === b.target) d -= 6;
       if (f === b.heard && now - b.heardAt < 5) d -= 14;   // heard gunfire: go and check it out
       if (intel && !vis) d -= 12;                          // their UAV shows where everyone is
@@ -5518,7 +5545,7 @@ function updateBot(b, dt) {
   }
   b.speed = b.mantle ? 4 : Math.hypot(b.pos.x - ox, b.pos.z - oz) / dt;
   if (now - b.lastHurt > 5 && b.hp < 100) b.hp = Math.min(100, b.hp + 20*dt);   // bots heal like you do
-  if (MODE === 'wz' && !b.remote) {   // bots plate up when nobody's shooting at them
+  if ((MODE === 'wz' || MODE === 'br') && !b.remote) {   // bots plate up when nobody's shooting at them
     if (b.armor < 150 && b.plates > 0 && !b.sees && now - b.lastHurt > 1.5) { b.plateT = (b.plateT || 0) + dt; if (b.plateT >= PLATE_TIME*1.1) { b.plateT = 0; b.armor = Math.min(150, b.armor + 50); b.plates--; } }
     else b.plateT = 0;
   }
@@ -5582,7 +5609,7 @@ function updateBot(b, dt) {
   if (t && b.sees && !blind && !b.mantle && now > b.reactAt && now > b.nextShot && !(b.reloadUntil > now) && Math.abs(wrap(aimTarget - b.aimYaw)) < .35) {
     const dist = b.pos.distanceTo(t.pos);
     const bw = WEAPONS[b.wid], bp = bw.bot;
-    if (dist < (bp.maxRange || 55)) {
+    if (dist < (bp.maxRange || (BR.on ? (bp.longAcc ? 115 : Math.max(40, bp.pref[1]*3)) : 55))) {
       if (b.burstLeft <= 0) b.burstLeft = Math.round(rand(bp.burst[0], bp.burst[1]));
       b.burstLeft--; b.ammo--;
       b.nextShot = now + (b.burstLeft > 0 ? bp.rate : bp.rate + rand(.3, .8)) * rand(.9, 1.15); b.lastShot = now; b.flash = .05;
@@ -5740,7 +5767,7 @@ function kcUpdate(dt) {
 }
 // ---- Spectating (online Mini Warzone, once you're out): ride along over a survivor's shoulder; jump / fire for the next ----
 const SPEC = { on: false, target: null, cam: V(), look: V(), ok: false };
-function specCandidates() { return bots.filter(b => b.alive && b.netId >= 0 && b.group.visible); }
+function specCandidates() { return BR.on ? bots.filter(b => b.alive && b.br && (b.br.st === 'ground' || b.br.st === 'chute')) : bots.filter(b => b.alive && b.netId >= 0 && b.group.visible); }
 function specStart(prefer) {
   const list = specCandidates(); if (!list.length) return;
   SPEC.on = true; SPEC.ok = false; SPEC.target = list.includes(prefer) ? prefer : list[0];
@@ -6050,6 +6077,7 @@ function updateView(dt) {
   // viewmodel sun matches world sun direction relative to the camera
   vmSun.position.copy(SUN_DIR).applyQuaternion(_q.copy(camera.quaternion).invert()).multiplyScalar(5);
   if (towerLight) towerLight.visible = Math.sin(now*3) > 0;
+  brCamera(dt);
 }
 
 // =====================================================================
@@ -6071,6 +6099,7 @@ function resetMatch() {
   kcClear();
   $('feed').innerHTML = '';
   equipLoadout(); switchAnim = 0;
+  brReset();
 }
 function endMatch() {
   if (matchOver) return;
@@ -6085,7 +6114,7 @@ function endMatch() {
 }
 function showResults() {
   running = false;
-  const st = standings(), res = MODE === 'wz' ? ((NET.on ? NET.winner === NET.id : player.alive && wzAlive() === 1) ? 'win' : 'lose') : teamMode() ? (teamScore[0] > teamScore[1] ? 'win' : teamScore[0] < teamScore[1] ? 'lose' : 'draw') : st[0].isPlayer ? 'win' : 'lose';
+  const st = standings(), res = BR.on ? (BR.place === 1 ? 'win' : 'lose') : MODE === 'wz' ? ((NET.on ? NET.winner === NET.id : player.alive && wzAlive() === 1) ? 'win' : 'lose') : teamMode() ? (teamScore[0] > teamScore[1] ? 'win' : teamScore[0] < teamScore[1] ? 'lose' : 'draw') : st[0].isPlayer ? 'win' : 'lose';
   addXP(res === 'win' ? 500 : res === 'draw' ? 250 : 150, res === 'win' ? 'VICTORY BONUS' : 'MATCH BONUS');
   stat('matches');
   if (MODE === 'wz' && (res === 'win' || (wzPlace && wzPlace <= 3))) stat('wzTop3');
@@ -6095,7 +6124,7 @@ function showResults() {
   }
   say(res === 'win' ? 'Victory' : res === 'lose' ? 'Defeat' : 'Draw', true);
   $('sub').innerHTML = `<div class="banner ${res}">${res === 'win' ? 'VICTORY' : res === 'lose' ? 'DEFEAT' : 'DRAW'}</div>` +
-    (MODE === 'wz' ? (res === 'win' ? 'Last one standing · #1' : `You placed <b>#${wzPlace || wzAlive() + 1}</b> of ${fighters.length}`) : teamMode() ? `<span style="color:${TEAM[0].color}">${TEAM[0].name} ${teamScore[0]}</span> &nbsp;—&nbsp; <span style="color:${TEAM[1].color}">${teamScore[1]} ${TEAM[1].name}</span>`
+    (BR.on ? brResultLine() : MODE === 'wz' ? (res === 'win' ? 'Last one standing · #1' : `You placed <b>#${wzPlace || wzAlive() + 1}</b> of ${fighters.length}`) : teamMode() ? `<span style="color:${TEAM[0].color}">${TEAM[0].name} ${teamScore[0]}</span> &nbsp;—&nbsp; <span style="color:${TEAM[1].color}">${teamScore[1]} ${TEAM[1].name}</span>`
       : st[0].isPlayer ? 'You topped the leaderboard' : `<b style="color:${st[0].color}">${st[0].name}</b> wins the match`);
   $('results').innerHTML = matchSummary() + table(); $('keys').style.display = 'none';
   renderRank();
@@ -6413,6 +6442,7 @@ function beginPlay() {
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; if (!S.toggleAds) adsHeld = false; $('board').style.display = 'none'; });
 function pause() {
   running = false; firing = false; adsHeld = false;
+  if (BR.on) { brShopClose(); brMapToggle(false); }
   if (KC.on) $('kcam').style.display = 'none';
   for (const k in keys) keys[k] = false;
   $('board').style.display = 'none';
@@ -6462,6 +6492,7 @@ document.addEventListener('mousemove', e => {
   cursorX = e.clientX; cursorY = e.clientY;
   if (Math.abs(e.movementX) + Math.abs(e.movementY) > 3) PAD.used = false;
   if (!running || (!locked && !freeMouse)) return;
+  if (BR.on && BR.ui) { brUiMouse(e.movementX, e.movementY); return; }
   const k = .0022 * lookScale(), dp = -e.movementY*k*(S.invertY ? -1 : 1);
   if (dp < 0 && recoverP > 0) recoverP = Math.max(0, recoverP + dp);   // pulling down against recoil counts toward the recovery
   yaw -= e.movementX*k; pitch = clamp(pitch + dp, -1.5, 1.5);
@@ -6485,11 +6516,12 @@ function updateLook(dt) {
 // =====================================================================
 const PAD = { gp: null, name: '', prev: [], held: {}, lx: 0, ly: 0, rx: 0, ry: 0, used: false, sprintLatch: false, lt: false, rt: false };
 const PAD_BTN = { 0: 'jump', 1: 'crouch', 2: 'reload', 3: 'swap', 4: 'tactical', 5: 'grenade', 8: 'scoreboard', 10: 'sprint', 11: 'melee', 12: 'ksUav', 13: 'plate', 14: 'ksCuav', 15: 'ksAir' };
-const PAD_NAMES = { jump: 'A', crouch: 'B', reload: 'X', swap: 'Y', tactical: 'LB', grenade: 'RB', fire: 'RT', ads: 'LT', sprint: 'L3', melee: 'R3', ksUav: 'D-pad ↑', ksCuav: 'D-pad ←', ksAir: 'D-pad →', plate: 'D-pad ↓' };
+const PAD_NAMES = { jump: 'A', crouch: 'B', reload: 'X', swap: 'Y', tactical: 'LB', grenade: 'RB', fire: 'RT', ads: 'LT', sprint: 'L3', melee: 'R3', ksUav: 'D-pad ↑', ksCuav: 'D-pad ←', ksAir: 'D-pad →', plate: 'D-pad ↓', interact: 'X', map: 'View' };
 const btnName = a => PAD.used && PAD_NAMES[a] ? PAD_NAMES[a] : keyName(BINDS[a]);
 addEventListener('gamepadconnected', e => { PAD.name = e.gamepad.id; if ($('settingsView').style.display !== 'none') renderSettings(); });
 addEventListener('gamepaddisconnected', () => { PAD.gp = null; PAD.name = ''; for (const a in PAD.held) PAD.held[a] = false; PAD.lx = PAD.ly = PAD.rx = PAD.ry = 0; });
 function padAction(a, down) {
+  if (brPad(a, down)) return;   // Battle Royale: X interacts, View opens the map, menus take the buttons
   if (a === 'sprint' && down) PAD.sprintLatch = true;   // click L3 to sprint; it keeps going while you push forward
   if (a !== 'sprint') PAD.held[a] = down;
   if (!rebinding) onAction(a, down, false);
@@ -6532,7 +6564,7 @@ function padPlay() {
 // right stick look with a response curve (fine aim near the center, fast turns at full tilt) and aim assist
 const _af = V(), _at = V();
 function padLook(dt) {
-  if (!PAD.gp || !running || !player.alive) return;
+  if (!PAD.gp || !running || !player.alive || (BR.on && BR.ui)) return;
   const curve = v => Math.sign(v)*Math.pow(Math.abs(v), 1.7), scale = lookScale()/S.sens*S.padSens;
   let rate = 3.6*scale, sx = curve(PAD.rx), sy = curve(PAD.ry);
   if (S.aimAssist && PAD.used) {
@@ -6602,6 +6634,8 @@ function onAction(a, down, repeat) {
     case 'ksAir': if (down && !repeat) useStreak('air'); break;
     case 'plate': if (down && !repeat) startPlating(); break;
     case 'melee': if (down && !repeat) doMelee(); break;
+    case 'interact': if (!repeat) brInteractKey(down); break;
+    case 'map': if (down && !repeat) brMapToggle(); break;
     case 'sprint':
       if (down && !repeat) {
         if (now - lastSprintTap < .32 && now >= tacReadyAt && player.alive && moveInput().f > .4 && stance === 'stand') { tacUntil = now + 3.2; tacReadyAt = now + 7.2; mech('tac'); }
@@ -6617,12 +6651,14 @@ document.addEventListener('mousedown', e => {
   if (AC && AC.state === 'suspended' && !bgMuted) AC.resume();
   if (!running) return;
   if (!locked && player.alive) requestLock();
+  if (BR.on && BR.ui) { brUiClick(e.button); return; }   // a Battle Royale menu or the map is open
   codeDown('Mouse' + e.button);
 });
 document.addEventListener('mouseup', e => { if (!rebinding) codeUp('Mouse' + e.button); });
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('wheel', e => {
   if (rebinding || !running) return;
+  if (BR.on && BR.ui) { brUiWheel(e.deltaY); return; }
   const c = e.deltaY > 0 ? 'WheelDown' : 'WheelUp'; codeDown(c); codeUp(c);
 });
 document.addEventListener('keydown', e => {
@@ -6630,6 +6666,7 @@ document.addEventListener('keydown', e => {
   PAD.used = false; if (AC && AC.state === 'suspended' && !bgMuted) AC.resume();
   if (e.code === 'Tab' || e.code.startsWith('Arrow') || (running && actionsFor(e.code).length)) e.preventDefault();
   if (e.code === 'Escape' && running && !locked) { pause(); return; }
+  if (running && BR.on && brKey(e.code)) { e.preventDefault(); return; }   // the buy station menu takes the keys while it's open
   codeDown(e.code, e.repeat);
 });
 document.addEventListener('keyup', e => { if (!rebinding && !(e.target && e.target.tagName === 'INPUT')) codeUp(e.code); });
@@ -7354,6 +7391,7 @@ function warmup() {
   const objVis = [...tagPool, ...flags.map(f => f.g), gasWall, ...lootPool, vmPlate, ...canPool.flash, ...canPool.smoke, ...clayPool, ...jets, airMark, vmFrag, vmCan.flash, vmCan.smoke, vmClay].map(o => { const v = o.visible; o.visible = true; return v; });
   // bots cast shadows only up close, so make each one cast once now: the skinned shadow shaders compile here, not on the first spawn
   for (const b of bots) if (b.model) { b.model.traverse(o => { if (o.isMesh) o.castShadow = true; }); b.castNow = undefined; }
+  brWarm(true);   // Battle Royale loot, boxes, the plane, parachutes
   scene.updateMatrixWorld(true);
   renderer.compile(scene, camera); renderer.compile(vmScene, vmCamera);
   // also run the sunbeam / gun-mask passes once so their shaders exist before you first face the sun
@@ -7364,6 +7402,7 @@ function warmup() {
   guns.forEach((g, i) => g.visible = i === weapon);
   nadePool.forEach(m => m.visible = false); vmNade.visible = false;
   [...tagPool, ...flags.map(f => f.g), gasWall, ...lootPool, vmPlate, ...canPool.flash, ...canPool.smoke, ...clayPool, ...jets, airMark, vmFrag, vmCan.flash, vmCan.smoke, vmClay].forEach((o, i) => o.visible = objVis[i]);
+  brWarm(false);
 }
 let lastFrameAt = 0, prevFrameT = 0, pausedTick = 0;
 // Frame pacing. "Screen" follows the monitor (or the steady half-rate lock Auto graphics may pick),
@@ -7407,6 +7446,7 @@ function frame(t, uncapped) {
     for (const b of bots) updateBot(b, dt);
     separate();
     updateGrenades(dt); runTimers(); updateObjectives(dt); updateSmokes(dt); updateClaymores(); updateStrikes(dt);
+    brTick(dt);
     if (matchTime <= 0 && !NET.on) endMatch();
     updateView(dt);
     updateNameTags(); updateNadeInd(); kcRecord();
@@ -7436,11 +7476,12 @@ Promise.all([detectRefresh().then(hz => { targetFps = Math.round(hz); bootMark('
   await Promise.race([loadOperators(), new Promise(r => setTimeout(r, 6000))]); bootMark('operators');
   if (!opOk(myOp)) myOp = 'vanguard';
   if (!skinUnlocked(OP_SKIN[mySkin] || OP_SKIN.standard)) mySkin = 'standard';
-  bots = BOTS.map(([n, c]) => makeBot(n, c));
+  bots = brBotList().map(([n, c]) => makeBot(n, c));
   bots.forEach(b => { setOperator(b, randomOp(), randomSkin()); b.lvTag = botLv(); });
   KC.avatar = makeBot('You', 0xffb14a); fighters.splice(fighters.indexOf(KC.avatar), 1);   // only ever seen in your killcam
   KC.avatar.group.visible = false; setOperator(KC.avatar, myOp, mySkin); applySleeveSkin();
-  shadowCacheInit([...bots.map(b => b.group), KC.avatar.group, ...nadePool, ...canPool.flash, ...canPool.smoke, ...clayPool, ...jets, ...lootPool]);
+  const brRoots = brInit();
+  shadowCacheInit([...bots.map(b => b.group), KC.avatar.group, ...nadePool, ...canPool.flash, ...canPool.smoke, ...clayPool, ...jets, ...lootPool, ...brRoots]);
   fighters.forEach(f => respawn(f));
   for (const b of bots) { b.group.position.copy(b.pos); b.group.rotation.y = b.bodyYaw; }
   bootMark('bots');

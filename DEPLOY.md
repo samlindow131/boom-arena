@@ -9,7 +9,7 @@ These steps use **Render** (render.com), which has a free plan. You'll need a Gi
 1. Sign in at github.com and click **New repository**. Name it `boom-arena`. Leave it Public (or pick Private), then click **Create repository**.
 2. On the new repository's page, click **uploading an existing file**.
 3. Drag these in from the `boom-arena` folder:
-   `index.html`, `soldier.js`, `shared.js`, `game.js`, `server.js`, `maps.json`, `package.json`, `render.yaml`, `sw.js`, `manifest.webmanifest`, the whole `icons` folder, and the `operators` folder if you have one (your converted Mixamo characters; drag each folder itself in)
+   `index.html`, `island.js`, `br.js`, `soldier.js`, `shared.js`, `game.js`, `server.js`, `maps.json`, `package.json`, `render.yaml`, `sw.js`, `manifest.webmanifest`, the whole `icons` folder, and the `operators` folder if you have one (your converted Mixamo characters; drag each folder itself in)
 4. Click **Commit changes**.
 
 ## 2. Start it on Render
@@ -34,6 +34,8 @@ These steps use **Render** (render.com), which has a free plan. You'll need a Gi
 Once it's live, Chrome and Edge show an install icon at the right end of the address bar, and the game's menu shows an **Install app** button. Installed, it gets its own icon in the Dock / on the desktop, opens in its own window, starts faster, and single-player works without internet. Updates still arrive automatically. On iPhone/iPad Safari: Share → Add to Home Screen.
 
 ## Good to know
+
+- **Battle Royale is single-player for now** (you against 23 bots). Online matches are Free-for-all, Team Deathmatch and Mini Warzone; picking Play Online from the island takes you to one of those.
 
 - **The free plan sleeps** after about 15 minutes with nobody playing. The next visitor waits about a minute while it wakes up. For a server that's always on, change the plan to **Starter** in Render's settings (this costs money; see Render's pricing page).
 - **Updating the game:** upload the changed files to the GitHub repository again (same "Add file → Upload files" button). Render puts the new version live by itself in a minute or two. Anyone still on the old version is asked to refresh.

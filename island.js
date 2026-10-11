@@ -37,6 +37,7 @@ const ISLE_ROADS = [
 ];
 const MI = {};
 function isleMats() {
+  if (MI.red) return;   // once (the ground needs the sea's material before the rest of the island is built)
   const sid = c => heightAO(stdMat(C.siding, 1, { color: lin(c), roughness: .82, normal: 2.2, rough: [.9, -.2] }));
   MI.red = sid(0xa3412c); MI.white = sid(0xe9e4da); MI.green = sid(0x7f9c7a); MI.blue = sid(0x6d8db0); MI.cream = sid(0xe3cc92); MI.grey = sid(0x9a9ea4);
   MI.stone = heightAO(stdMat(C.concrete, 1, { color: lin(0xcabfa8), roughness: .95, normal: 3, rough: [1, -.3] }));
@@ -456,11 +457,12 @@ function isleGulag() {
 }
 // ---- ground, coast, sea, roads, trees, grass ----
 function isleGround() {
+  isleMats();
   const N = 220, S = 440, geo = new THREE.PlaneGeometry(S, S, N, N); geo.rotateX(-Math.PI/2);
   const p = geo.attributes.position, sand = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i), e = isleIn(x, z);
-    p.setY(i, e >= 0 ? 0 : Math.max(-6, e*.4 - .05));
+    p.setY(i, e >= 0 ? 0 : Math.max(-8, e*1.1 - .3));   // drops away fast past the shoreline
     sand[i] = 1 - clamp((e - ISLE_BEACH + 2.5)/4, 0, 1);
   }
   geo.setAttribute('sandW', new THREE.BufferAttribute(sand, 1));
