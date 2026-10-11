@@ -1,0 +1,19 @@
+{
+  "name": "Boom Arena",
+  "short_name": "Boom Arena",
+  "description": "A fast first-person shooter: bots, killstreaks, Mini Warzone and online matches.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a0e1d",
+  "theme_color": "#121830",
+  "categories": ["games"],
+  "launch_handler": { "client_mode": "focus-existing" },
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

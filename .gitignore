@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+# raw Mixamo downloads stay on your Mac; the game uses the converted models in operators/
+characters/*.fbx
+characters/*.FBX

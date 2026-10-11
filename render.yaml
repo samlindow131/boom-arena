@@ -1,0 +1,11 @@
+# Render Blueprint: Render reads this when you create the service from your GitHub repo.
+# "free" sleeps after 15 minutes with nobody on (the first visitor then waits ~1 minute for it to wake);
+# change it to "starter" for a server that's always on.
+services:
+  - type: web
+    name: boom-arena
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
