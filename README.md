@@ -29,6 +29,8 @@ Every key can be changed in Settings. Controllers work too.
 
 ## Playing it
 
+**Quickest way, on any computer:** click the green **Code** button on this page, then **Download ZIP**. Unzip it and double-click `index.html`. It opens in your browser and you can play against bots straight away (it needs an internet connection the first time, to load the 3D engine). Chrome or Edge work best.
+
 - **Online with friends:** open the game's web address (see `DEPLOY.md` for putting it on Render) and click **Play Online**.
 - **On your own computer:** install [Node.js](https://nodejs.org) 18 or newer, then run `node server.js` in this folder and open http://localhost:8080. Friends on the same Wi-Fi can join at the address it prints.
 
