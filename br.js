@@ -13,7 +13,7 @@ const BR = {
   gq: [], duel: null, reveal: -1, waypoint: null, mapCur: { x: 0, z: 0 }, said: {}, stats: null, pubDrops: {}, scanT: 0, spec: 0, over: false,
   loopPlane: null, loopWind: null, baseFog: 0, lastOut: null, picks: [], banner: null, shopPrice: {},
 };
-const BR_N = 24;   // fighters in a match: you and 23 bots
+const BR_N = 100;   // fighters in a match: you and 99 bots
 const BR_RAR = [
   { name: 'Common', col: '#c9ced6', glow: [.85, .9, 1], camo: 'factory' },
   { name: 'Uncommon', col: '#5ad86f', glow: [.35, 1.6, .5], camo: 'woodland' },
@@ -31,7 +31,7 @@ const BR_AMMO = {
 const BR_AMMO_OF = { pistol: 'light', smg: 'light', ar: 'rifle', lmg: 'rifle', dmr: 'rifle', shotgun: 'shells', sniper: 'heavy', magnum: 'heavy' };
 const BR_GUNS = [['ar', 3], ['smg', 3], ['shotgun', 2], ['dmr', 2], ['lmg', 1.3], ['sniper', 1.2], ['pistol', 1.3], ['magnum', 1]];
 // gas: [wait, close, radius as a share of the first circle], damage per second per phase; the Gulag shuts after phase 3
-const BR_GAS = { phases: [[95, 50, .6], [55, 42, .38], [45, 36, .22], [40, 32, .12], [32, 28, .05], [22, 26, 0]], dmg: [2, 4, 7, 11, 16, 24], gulagUntil: 3, R0: 178 };
+const BR_GAS = { phases: [[120, 85, .6], [80, 60, .38], [65, 50, .22], [55, 42, .12], [45, 34, .06], [32, 28, .025], [22, 24, 0]], dmg: [1, 2, 4, 7, 11, 16, 24], gulagUntil: 4, R0: 540 };
 const BR_SHOP = [
   { id: 'plate', name: 'Armor Plate', note: '+1 plate', cost: 300 },
   { id: 'armor', name: 'Armor Box', note: 'Full armor and a full plate pouch', cost: 1200 },
@@ -54,14 +54,17 @@ const BR_CONTRACT = {
   scav: { name: 'Scavenger', col: '#5ad86f', hex: 0x4ad06a, note: 'Open the three marked supply boxes', time: 150 },
   recon: { name: 'Recon', col: '#4aa3ff', hex: 0x3a90ff, note: 'Upload data at the marked spot to see where the final circle will be', time: 120 },
 };
-const BR_ALT = 168, BR_PLANE_SPEED = 15;
-const BR_FALL = { v: 27, dive: 46, h: 23, chuteV: 5.4, chuteH: 9.5, auto: 46 };
+const BR_ALT = 300, BR_PLANE_SPEED = 34, BR_PLANE_HALF = 600;
+const BR_FALL = { v: 27, dive: 48, h: 26, chuteV: 5.4, chuteH: 10.5, auto: 46 };
 const brMode = () => MODE === 'br' && !!MAPDEF.br;
+const BR_MAP_W = 500;   // the maps show ±500 m
 // the bot list for a Battle Royale (the regular modes keep the usual seven)
 function brBotList() {
   if (!MAPDEF.br) return BOTS;
-  const extra = [['Ghost', 0x9fb3c8], ['Blaze', 0xff6a2a], ['Raven', 0x7a6d9a], ['Jinx', 0xff5ab4], ['Echo', 0x6ad8ff], ['Moose', 0xa8754a], ['Pixel', 0x7aff6a], ['Saber', 0xe8e05a],
-    ['Talon', 0xd04a3a], ['Dusk', 0x8e6cff], ['Frost', 0xbfefff], ['Hawk', 0xd99a3a], ['Juno', 0xff9ad5], ['Lynx', 0x5affd0], ['Mako', 0x3a8dff], ['Onyx', 0x9d9daa]];
+  const names = ('Ghost Blaze Raven Jinx Echo Moose Pixel Saber Talon Dusk Frost Hawk Juno Lynx Mako Onyx Atlas Bandit Cobra Dagger Ember Falcon Gizmo Havoc Iris Jackal Kodiak Lotus Mantis Nova ' +
+    'Orbit Puma Quill Rook Sable Tango Ursa Viper Wraith Xeno Yeti Zephyr Ajax Bolt Cinder Drake Glyph Flint Gauge Hex Ivy Jolt Kestrel Lumen Mirage Nyx Opal Pike Quasar Rift Spark Torque ' +
+    'Umber Vex Warden Axel Blitz Comet Delta Ezra Fang Grit Halo Indigo Jett Karma Laser Mojo Nomad Oak Pyro Quinn Rogue Stitch Titan Ultra Vandal Wolf Yonder Zeal Ace Brick Crash').split(' ');
+  const extra = names.map((n, i) => [n, new THREE.Color().setHSL((i*.618) % 1, .65, .58).getHex()]);
   return [...BOTS, ...extra].slice(0, BR_N - 1);
 }
 const brIn = (a, b) => Math.random() < a/(a + b);
@@ -240,7 +243,7 @@ function brInit() {
   BR.crates = ISLE.crates.map((c, i) => ({ ...c, i, open: false, legend: false, mesh: null, openT: 0 }));
   BR.stations = ISLE.stations.map(s => {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: brIconTex('$', '#53ff94'), depthWrite: false, transparent: true, sizeAttenuation: true }));
-    sp.position.set(s.kx, 3.4, s.kz); sp.scale.setScalar(1.2); BR.root.add(sp); return { ...s, icon: sp };
+    sp.position.set(s.kx, s.ky + 3.4, s.kz); sp.scale.setScalar(1.2); BR.root.add(sp); return { ...s, icon: sp };
   });
   // loot spots: the ones the island recorded, checked against the finished world, plus some outdoors
   const near = [];
@@ -251,11 +254,11 @@ function brInit() {
     return yy;
   };
   for (const s of ISLE.spots) { const y = ok(s.x, s.y, s.z); if (y !== null) BR.spots.push({ x: s.x, y, z: s.z, tier: s.tier }); }
-  for (const p of ISLE.pois) for (let i = 0; i < 14; i++) {
-    const a = rand(0, 6.283), r = rand(4, p.r), x = p.x + Math.cos(a)*r, z = p.z + Math.sin(a)*r, y = ok(x, 0, z);
-    if (y !== null && y < .2) BR.spots.push({ x, y, z, tier: p.tier });
+  for (const p of ISLE.pois) for (let i = 0, n = Math.max(14, Math.round(p.r*.5)); i < n; i++) {
+    const a = rand(0, 6.283), r = rand(4, p.r), x = p.x + Math.cos(a)*r, z = p.z + Math.sin(a)*r, gy = isleH(x, z), y = ok(x, gy, z);
+    if (y !== null && y < gy + .2) BR.spots.push({ x, y, z, tier: p.tier });
   }
-  for (let i = 0; i < 60; i++) { const x = rand(-125, 125), z = rand(-125, 125); if (isleIn(x, z) > ISLE_BEACH + 3) { const y = ok(x, 0, z); if (y !== null) BR.spots.push({ x, y, z, tier: 1, wild: true }); } }
+  for (let i = 0; i < 1100; i++) { const x = rand(-470, 470), z = rand(-470, 470); if (isleInF(x, z) > ISLE_BEACH + 3) { const y = ok(x, isleH(x, z), z); if (y !== null) BR.spots.push({ x, y, z, tier: 1, wild: true }); } }
   BR.baseFog = scene.fog.density;
   brInitExtras();
   return [BR.root];
@@ -289,8 +292,8 @@ function brReset() {
   for (const s of BR.spots) if (Math.random() < (s.wild ? .5 : s.tier > 1 ? .82 : .68)) brSpawnLoot(brRollItem(s.tier), s.x, s.y, s.z);
   // contract tablets: about one per named area, on the ground
   const pois = ISLE.pois.slice().sort(() => Math.random() - .5);
-  for (const p of pois.slice(0, 8)) {
-    const cand = BR.spots.filter(s => s.y < .2 && Math.hypot(s.x - p.x, s.z - p.z) < p.r);
+  for (const p of pois.slice(0, 14)) {
+    const cand = BR.spots.filter(s => s.y < isleH(s.x, s.z) + .2 && Math.hypot(s.x - p.x, s.z - p.z) < p.r);
     const s = cand[Math.floor(Math.random()*cand.length)]; if (!s) continue;
     const kind = brPick([['bounty', 4], ['scav', 3.5], ['recon', 2.5]]);
     BR.tablets.push(brTablet(kind, s.x + .5, s.y, s.z + .5));
@@ -300,8 +303,8 @@ function brReset() {
   brNextCircle(); gasWall.visible = true; gasWall.scale.y = 2.5;
   MATCH_TIME = matchTime = 1e6;
   // the plane's path: a straight line over the island at a random angle
-  const a = rand(0, 6.283), dir = V(Math.cos(a), 0, Math.sin(a)), nrm = V(-dir.z, 0, dir.x), c = nrm.multiplyScalar(rand(-50, 50));
-  BR.plane = { from: c.clone().addScaledVector(dir, -235).setY(BR_ALT), to: c.clone().addScaledVector(dir, 235).setY(BR_ALT), dir, t0: now, dur: 470/BR_PLANE_SPEED, pos: V(), s: 0 };
+  const a = rand(0, 6.283), dir = V(Math.cos(a), 0, Math.sin(a)), nrm = V(-dir.z, 0, dir.x), c = nrm.multiplyScalar(rand(-150, 150));
+  BR.plane = { from: c.clone().addScaledVector(dir, -BR_PLANE_HALF).setY(BR_ALT), to: c.clone().addScaledVector(dir, BR_PLANE_HALF).setY(BR_ALT), dir, t0: now, dur: 2*BR_PLANE_HALF/BR_PLANE_SPEED, pos: V(), s: 0 };
   BR.plane.pos.copy(BR.plane.from); BR.planeMesh.visible = true;
   brSetupSquads();
   // everyone aboard
@@ -318,12 +321,12 @@ function brReset() {
       let tx, tz;
       if (Math.random() < .85) { const p = brPick(poiW), a2 = rand(0, 6.283), r = Math.sqrt(Math.random())*p.r*.8; tx = p.x + Math.cos(a2)*r; tz = p.z + Math.sin(a2)*r; }
       else { const s = BR.spots[Math.floor(Math.random()*BR.spots.length)]; tx = s.x; tz = s.z; }
-      f.br.tx = tx; f.br.tz = tz; f.br.ty = surfaceBelow(tx, tz, 60);
-      const s = ((tx - BR.plane.from.x)*dir.x + (tz - BR.plane.from.z)*dir.z)/470;
+      f.br.tx = tx; f.br.tz = tz; f.br.ty = surfaceBelow(tx, tz, 400);
+      const s = ((tx - BR.plane.from.x)*dir.x + (tz - BR.plane.from.z)*dir.z)/(2*BR_PLANE_HALF);
       f.br.jumpS = clamp(s - rand(.03, .16), .04, .96);
       // squads land together: your teammates jump when you do, other squads when their leader does
       if (BR.trio && f.squad === player.squad) { f.br.jumpS = 2; f.br.follow = true; }
-      else if (BR.trio) { const lead = fighters.find(m => m.squad === f.squad && !m.isPlayer); if (lead !== f) { f.br.tx = lead.br.tx + rand(-6, 6); f.br.tz = lead.br.tz + rand(-6, 6); f.br.ty = surfaceBelow(f.br.tx, f.br.tz, 60); f.br.jumpS = clamp(lead.br.jumpS + rand(0, .02), .04, .97); } }
+      else if (BR.trio) { const lead = fighters.find(m => m.squad === f.squad && !m.isPlayer); if (lead !== f) { f.br.tx = lead.br.tx + rand(-6, 6); f.br.tz = lead.br.tz + rand(-6, 6); f.br.ty = surfaceBelow(f.br.tx, f.br.tz, 400); f.br.jumpS = clamp(lead.br.jumpS + rand(0, .02), .04, .97); } }
       f.br.offx = rand(-5, 5); f.br.offz = rand(-5, 5);
     }
   }
@@ -418,7 +421,7 @@ function brBotAir(b, dt) {
   if (s === 'fall' || s === 'chute') {
     if (b.br.follow && player.br && player.br.st !== 'plane') {   // your teammates come down next to you
       const lead = player.br.st === 'fall' || player.br.st === 'chute' ? 2.5 : 0;
-      b.br.tx = player.pos.x + player.br.vx*lead + b.br.offx; b.br.tz = player.pos.z + player.br.vz*lead + b.br.offz; b.br.ty = surfaceBelow(b.br.tx, b.br.tz, 60);
+      b.br.tx = player.pos.x + player.br.vx*lead + b.br.offx; b.br.tz = player.pos.z + player.br.vz*lead + b.br.offz; b.br.ty = surfaceBelow(b.br.tx, b.br.tz, 400);
     }
     const dx = b.br.tx - b.pos.x, dz = b.br.tz - b.pos.z, d = Math.hypot(dx, dz) || 1, alt = b.pos.y - (b.br.ty || 0);
     // glide toward the landing spot; dive once it's below; open the parachute late when right over it
@@ -840,7 +843,7 @@ function brScavStep(who) {
   centerMsg(`SUPPLY BOX ${c.step}/3 · NEXT ONE MARKED`); mech('beep');
 }
 function brReconSpot() {
-  const P = player.pos, list = BR.spots.filter(s => s.y < .2 && Math.hypot(s.x - gas.cx, s.z - gas.cz) < gas.r - 10).map(s => [s, Math.hypot(s.x - P.x, s.z - P.z)]).filter(([, d]) => d > 35 && d < 110);
+  const P = player.pos, list = BR.spots.filter(s => s.y < isleH(s.x, s.z) + .2 && Math.hypot(s.x - gas.cx, s.z - gas.cz) < gas.r - 10).map(s => [s, Math.hypot(s.x - P.x, s.z - P.z)]).filter(([, d]) => d > 35 && d < 110);
   return list.length ? list[Math.floor(Math.random()*list.length)][0] : null;
 }
 function brContractEnd(win, why) {
@@ -889,7 +892,7 @@ function brFindTarget() {
   };
   for (const it of brItemsNear(P.pos.x, P.pos.z, 2.8, _bin)) consider(it.x, it.y, it.z, 2.6, { type: 'item', obj: it });
   for (const c of BR.crates) if (!c.open && Math.abs(c.x - P.pos.x) < 3 && Math.abs(c.z - P.pos.z) < 3) consider(c.x, c.y + .4, c.z, 2.4, { type: 'crate', obj: c, hold: .7 });
-  for (const s of BR.stations) if (Math.abs(s.x - P.pos.x) < 3 && Math.abs(s.z - P.pos.z) < 3) consider(s.kx, 1.2, s.kz, 2.8, { type: 'station', obj: s });
+  for (const s of BR.stations) if (Math.abs(s.x - P.pos.x) < 3 && Math.abs(s.z - P.pos.z) < 3) consider(s.kx, s.ky + 1.2, s.kz, 2.8, { type: 'station', obj: s });
   for (const t of BR.tablets) if (!t.taken && Math.abs(t.x - P.pos.x) < 3 && Math.abs(t.z - P.pos.z) < 3) consider(t.x, t.y + .8, t.z, 2.4, { type: 'tablet', obj: t });
   for (const d of BR.drops) if (d.landed && !d.open && Math.abs(d.x - P.pos.x) < 3 && Math.abs(d.z - P.pos.z) < 3) consider(d.x, d.gy + .6, d.z, 2.6, { type: 'drop', obj: d, hold: .8 });
   const c = BR.contract;
@@ -1014,7 +1017,7 @@ function brPublicDrops() {
   for (let i = 0; i < 3; i++) {
     for (let k = 0; k < 30; k++) {
       const a = rand(0, 6.283), r = Math.sqrt(Math.random())*gas.toR*.75, x = gas.toX + Math.cos(a)*r, z = gas.toZ + Math.sin(a)*r;
-      if (isleIn(x, z) > 12 && clearAt(x, z, .1, 2, .9)) { brSpawnDrop(x, z, null); break; }
+      const gy = isleH(x, z); if (isleIn(x, z) > 12 && clearAt(x, z, gy + .1, gy + 2, .9)) { brSpawnDrop(x, z, null); break; }
     }
   }
   brBanner('LOADOUT DROPS INBOUND', 'RED SMOKE MARKS THEM · YOUR OWN GUNS INSIDE'); say('Loadout drops inbound');
@@ -1126,7 +1129,7 @@ function brRedeploy(f) {
   if (mate) { x = mate.pos.x + rand(-12, 12); z = mate.pos.z + rand(-12, 12); }
   f.alive = true; f.hp = 100; f.armor = 0; f.plates = 0; f.dmgBy = null; f.flinch = 0; f.blindUntil = 0;
   f.br.st = 'fall'; f.brZone = 'air'; f.br.vx = f.br.vz = 0; f.br.vy = -5; f.br.wantChute = false;
-  f.pos.set(x, 120, z);
+  f.pos.set(x, isleH(x, z) + 130, z);
   if (f.isPlayer) {
     if (BR.inv.slots[0] && BR.inv.slots[0].rar === 0 && !BR.inv.slots[1]) {}
     $('dead').style.display = 'none'; drReset(); specStop(); brGulagMsg(null); KC.pending = null;
@@ -1134,7 +1137,7 @@ function brRedeploy(f) {
     if (!BR.inv.slots.some(Boolean)) { BR.inv.slots = [{ wid: WID.pistol, rar: 0, mag: null }, null]; BR.inv.cur = 0; }
     brEquip();
   } else {
-    f.br.tx = x + rand(-8, 8); f.br.tz = z + rand(-8, 8); f.br.ty = surfaceBelow(f.br.tx, f.br.tz, 60);
+    f.br.tx = x + rand(-8, 8); f.br.tz = z + rand(-8, 8); f.br.ty = surfaceBelow(f.br.tx, f.br.tz, 400);
     brBotGun(f, WID.pistol, 0); f.group.visible = true; f.target = null; f.path = null; f.tag.userData.draw(100); f.drawnHp = 100;
     if (f.pos.distanceTo(player.pos) < 160 && player.alive) feedNote(`${f.name} is back from the Gulag`);
   }
@@ -1270,7 +1273,7 @@ function brBotGoal(b) {
       for (let k = 0; k < 20; k++) { const a = rand(0, 6.283), r = Math.sqrt(Math.random())*gas.toR*.6; x = gas.toX + Math.cos(a)*r; z = gas.toZ + Math.sin(a)*r; if (isleIn(x, z) > 8) break; }
       b.br.zone = [x, z];
     }
-    return { key: 'zone' + b.br.zoneKey, x: b.br.zone[0], y: 0, z: b.br.zone[1], urgent: inGas };
+    return { key: 'zone' + b.br.zoneKey, x: b.br.zone[0], y: isleH(b.br.zone[0], b.br.zone[1]), z: b.br.zone[1], urgent: inGas };
   }
   if (BR.trio) {
     // a squadmate down nearby: go and get them up
@@ -1302,7 +1305,7 @@ function brBotGoal(b) {
       const s = BR.spots[Math.floor(Math.random()*BR.spots.length)], d = Math.hypot(s.x - b.pos.x, s.z - b.pos.z);
       if (d > 12 && d < 75 && Math.hypot(s.x - gas.cx, s.z - gas.cz) < gas.r - 6 && Math.hypot(s.x - gas.toX, s.z - gas.toZ) < gas.toR + 8) { b.br.roam = s; b.br.roamUntil = now + 40; break; }
     }
-    if (!b.br.roam) b.br.roam = { x: gas.toX, y: 0, z: gas.toZ };
+    if (!b.br.roam) b.br.roam = { x: gas.toX, y: isleH(gas.toX, gas.toZ), z: gas.toZ };
   }
   return { key: 'roam' + b.br.roam.x.toFixed(1), x: b.br.roam.x, y: b.br.roam.y || 0, z: b.br.roam.z };
 }
@@ -1365,8 +1368,9 @@ function brTick(dt) {
     if (what === 'gulag' && gas.phase < BR_GAS.gulagUntil) brEnterGulag(player);
     else if (player.br.st !== 'out') brOut(player, BR.deathKiller);
   }
-  for (const s of BR.stations) s.icon.position.y = 3.4 + Math.sin(now*2 + s.kx)*.08;
+  for (const s of BR.stations) s.icon.position.y = s.ky + 3.4 + Math.sin(now*2 + s.kx)*.08;
   if (ISLE.mastLamp) ISLE.mastLamp.visible = Math.sin(now*3) > 0;
+  for (const h of ISLE_FAR.turbines) h.rotation.z += dt*.5;
   if (ISLE.flare && Math.random() < dt*12) particle(TX.flash, ISLE.flare.clone().add(V(rand(-.2, .2), rand(0, .4), rand(-.2, .2))), V(rand(-.3, .3), rand(1.5, 3), rand(-.3, .3)), rand(.4, .8), .9, .4, new THREE.Color(4, 2, .6), true, -1, .9, 1);
   brHUD(dt);
 }
@@ -1410,7 +1414,7 @@ function brHUD(dt) {
   if (mk > 0) $('brMaskBar').querySelector('b').style.width = Math.round(mk/14*100) + '%';
   if (BR.ui === 'shop') { const c = BR.inv.cash; if (BR.shopCash !== c) { BR.shopCash = c; brShopRender(); } if (!P.alive || Math.hypot(BR.shopAt.x - P.pos.x, BR.shopAt.z - P.pos.z) > 4) brShopClose(); }
   brSquadHUD(); brDownHUD();
-  if (BR.ui === 'map') { if (PAD.gp && PAD.used) { BR.mapCur.x = clamp(BR.mapCur.x + PAD.rx*dt*90, -150, 150); BR.mapCur.z = clamp(BR.mapCur.z + PAD.ry*dt*90, -150, 150); } brMapDraw(); }
+  if (BR.ui === 'map') { if (PAD.gp && PAD.used) { BR.mapCur.x = clamp(BR.mapCur.x + PAD.rx*dt*260, -BR_MAP_W, BR_MAP_W); BR.mapCur.z = clamp(BR.mapCur.z + PAD.ry*dt*260, -BR_MAP_W, BR_MAP_W); } brMapDraw(); }
   brCompass();
 }
 function brCompass() {
@@ -1442,35 +1446,38 @@ function brCompass() {
 // Maps: the corner minimap and the full island map (M)
 // =====================================================================
 function brMapImage() {
-  const S = 600, sc = S/300, c = mk(S, 0, g => {
+  const S = 1400, W = BR_MAP_W, sc = S/(2*W), c = mk(S, 0, g => {
     const img = g.createImageData(S, S), d = img.data;
     for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-      const x = i/sc - 150, z = j/sc - 150, e = isleIn(x, z), o = (j*S + i)*4;
-      let col = e < -3 ? [22, 70, 86] : e < 0 ? [40, 105, 112] : e < ISLE_BEACH ? [208, 190, 140] : [88 + vnoise(x*.05, z*.05)*18, 118 + vnoise(x*.05 + 9, z*.05)*16, 66];
+      const x = i/sc - W, z = j/sc - W, e = isleInF(x, z), o = (j*S + i)*4, h = isleH(x, z), shade = 1 + (isleH(x - 1.5, z - 1.5) - isleH(x + 1.5, z + 1.5))*.22 + h*.004;
+      let col = e < -3 ? [22, 70, 86] : e < 0 ? [40, 105, 112] : e < ISLE_BEACH ? [208, 190, 140] : [(88 + vnoise(x*.03, z*.03)*18 + h*1.2)*shade, (118 + vnoise(x*.03 + 9, z*.03)*16 + h*.6)*shade, (66 + h*.9)*shade];
       if (ISLE.corn && x > ISLE.corn.x0 && x < ISLE.corn.x1 && z > ISLE.corn.z0 && z < ISLE.corn.z1) col = [150, 160, 70];
       d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255;
     }
     g.putImageData(img, 0, 0);
     g.lineCap = 'round';
-    for (const r of ISLE.roads) { g.strokeStyle = r.w >= 6 ? '#5b5d62' : '#9b8464'; g.lineWidth = r.w*sc; g.beginPath(); g.moveTo((r.x0 + 150)*sc, (r.z0 + 150)*sc); g.lineTo((r.x1 + 150)*sc, (r.z1 + 150)*sc); g.stroke(); }
-    g.fillStyle = 'rgba(40,70,32,.85)';
-    for (const [x, z, s] of ISLE.trees) { g.beginPath(); g.arc((x + 150)*sc, (z + 150)*sc, 1.6*s*sc, 0, 7); g.fill(); }
+    for (const r of ISLE.roads) { g.strokeStyle = r.asph ? '#5b5d62' : '#9b8464'; g.lineWidth = Math.max(1.5, r.w*sc); g.beginPath(); g.moveTo((r.x0 + W)*sc, (r.z0 + W)*sc); g.lineTo((r.x1 + W)*sc, (r.z1 + W)*sc); g.stroke(); }
+    g.fillStyle = 'rgba(40,70,32,.8)';
+    for (const [x, z, s] of ISLE.trees) { g.beginPath(); g.arc((x + W)*sc, (z + W)*sc, Math.max(.8, 1.8*s*sc), 0, 7); g.fill(); }
     for (const b of boxes) {
-      if (b.coast || b.minY > 1.5 || b.maxY < 1.2) continue;
+      if (b.coast) continue;
+      const gy = isleH((b.minX + b.maxX)/2, (b.minZ + b.maxZ)/2); if (b.minY > gy + 1.5 || b.maxY < gy + 1.2) continue;
       const w = b.maxX - b.minX, dd = b.maxZ - b.minZ; if (w < .9 && dd < .9) continue;
-      g.fillStyle = b.maxY > 2.6 ? 'rgba(232,228,218,.92)' : 'rgba(180,176,166,.8)';
-      g.fillRect((b.minX + 150)*sc, (b.minZ + 150)*sc, w*sc, dd*sc);
+      g.fillStyle = b.maxY > gy + 2.6 ? 'rgba(232,228,218,.92)' : 'rgba(180,176,166,.8)';
+      g.fillRect((b.minX + W)*sc, (b.minZ + W)*sc, w*sc, dd*sc);
     }
   });
   return c;
 }
 function brCircle(g, x, z, r, sc, style, dash) { g.save(); g.strokeStyle = style; g.lineWidth = 2; if (dash) g.setLineDash(dash); g.beginPath(); g.arc(x*sc, z*sc, Math.max(1, r*sc), 0, 7); g.stroke(); g.restore(); }
 function brDrawMap() {
-  const c = mapCtx, S = 176, sc = S/115;
+  const st = player.br && player.br.st, high = st === 'plane' || st === 'fall' || st === 'chute', c = mapCtx, S = 176;
+  BR.miniZ = (BR.miniZ || 115) + ((high ? 520 : 115) - (BR.miniZ || 115))*.08;   // zoomed out while you're up in the air
+  const sc = S/BR.miniZ;
   if (!BR.mapImg) BR.mapImg = brMapImage();
   c.clearRect(0, 0, S, S);
   c.save(); c.translate(S/2, S/2); c.rotate(yaw); c.translate(-player.pos.x*sc, -player.pos.z*sc);
-  c.drawImage(BR.mapImg, -150*sc, -150*sc, 300*sc, 300*sc);
+  c.drawImage(BR.mapImg, -BR_MAP_W*sc, -BR_MAP_W*sc, 2*BR_MAP_W*sc, 2*BR_MAP_W*sc);
   c.beginPath(); c.rect(-1000, -1000, 2000, 2000); c.arc(gas.cx*sc, gas.cz*sc, gas.r*sc, 0, Math.PI*2, true); c.fillStyle = 'rgba(255,140,40,.3)'; c.fill();
   brCircle(c, gas.cx, gas.cz, gas.r, sc, 'rgba(255,255,255,.9)'); brCircle(c, gas.toX, gas.toZ, gas.toR, sc, 'rgba(255,255,255,.85)', [4, 4]);
   brMapMarks(c, sc, 1.2);
@@ -1516,10 +1523,10 @@ function brMapToggle(open) {
   if (open) { BR.mapCur = { x: player.pos.x, z: player.pos.z }; firing = false; adsHeld = false; brMapDraw(); mech('aim', 0, .3); }
 }
 function brMapDraw() {
-  const cv = $('brMapWrap').querySelector('canvas'), g = cv.getContext('2d'), S = cv.width, sc = (S - 40)/300;
+  const cv = $('brMapWrap').querySelector('canvas'), g = cv.getContext('2d'), S = cv.width, sc = (S - 24)/(2*BR_MAP_W);
   if (!BR.mapImg) BR.mapImg = brMapImage();
   g.clearRect(0, 0, S, S); g.save(); g.translate(S/2, S/2);
-  g.drawImage(BR.mapImg, -150*sc, -150*sc, 300*sc, 300*sc);
+  g.drawImage(BR.mapImg, -BR_MAP_W*sc, -BR_MAP_W*sc, 2*BR_MAP_W*sc, 2*BR_MAP_W*sc);
   g.beginPath(); g.rect(-S, -S, S*2, S*2); g.arc(gas.cx*sc, gas.cz*sc, gas.r*sc, 0, Math.PI*2, true); g.fillStyle = 'rgba(255,140,40,.28)'; g.fill();
   brCircle(g, gas.cx, gas.cz, gas.r, sc, '#fff'); brCircle(g, gas.toX, gas.toZ, gas.toR, sc, 'rgba(255,255,255,.9)', [6, 5]);
   g.font = '700 15px Rajdhani,system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -1551,7 +1558,7 @@ function brUiMouse(dx, dy) {
     BR.uiAcc += dy;
     while (BR.uiAcc > 34) { BR.uiAcc -= 34; BR.uiSel = Math.min(brShopList().length - 1, BR.uiSel + 1); brShopRender(); }
     while (BR.uiAcc < -34) { BR.uiAcc += 34; BR.uiSel = Math.max(0, BR.uiSel - 1); brShopRender(); }
-  } else if (BR.ui === 'map') { BR.mapCur.x = clamp(BR.mapCur.x + dx*.32, -150, 150); BR.mapCur.z = clamp(BR.mapCur.z + dy*.32, -150, 150); }
+  } else if (BR.ui === 'map') { BR.mapCur.x = clamp(BR.mapCur.x + dx*.9, -BR_MAP_W, BR_MAP_W); BR.mapCur.z = clamp(BR.mapCur.z + dy*.9, -BR_MAP_W, BR_MAP_W); }
 }
 function brUiClick(btn) {
   if (BR.ui === 'shop') { if (btn === 0) brBuy(BR.uiSel); else if (btn === 2) brShopClose(); }

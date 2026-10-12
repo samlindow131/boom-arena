@@ -2,7 +2,7 @@
 // with no internet. The game's own files come fresh from the server whenever it can be reached (so updates
 // show up straight away) and from this cache when it can't. The 3D engine (pinned versions on CDNs) and the
 // font never change, so those are served from the cache once saved.
-const CACHE = 'boom-arena-v2';
+const CACHE = 'boom-arena-v3';
 const CORE = ['./', 'shared.js', 'island.js', 'br.js', 'soldier.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-64.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',

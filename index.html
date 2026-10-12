@@ -483,10 +483,11 @@ const MAP_INFO = {
     puddles: [[-12, -3], [3, 6.5], [10, -11], [-3, 15], [18, 7], [-20, 6], [7, -20], [-1, -11.5]],
     spawns: [[-21,21],[21,21],[0,22.5],[-22,-12],[22,-2],[-8,-21],[10,-22.5],[-22,6]] },
   // the Battle Royale island (island.js): only ever played in Battle Royale
-  island: { name: 'Crestfall Island', desc: 'Battle Royale island: a town, a harbor, a fort, a farm and more, ringed by sea.', size: 150, ground: 'island', hills: 0,
-    sun: [-.5, .55, -.62], sky: [0x2b62b8, 0x86b6e6, 0xffe2bc, 0x6a6650], fog: [0xd2e0ea, .0021], sunCol: [0xfff0d8, 3.3], hemi: [0xb4d0ff, 0x5c5340],
-    grass: 0, noGrass: [], trees: false, pines: 0, puddles: [], br: true, navCs: 1, doorW: 1.6, chunk: 40, follow: true,
-    spawns: [[0,14],[14,0],[-14,0],[0,-14],[110,8],[-78,-77],[-80,74],[80,-76],[0,-100],[16,96],[-104,-4],[80,78],[40,40],[-40,-40],[40,-40],[-40,40]] },
+  island: { name: 'Crestfall Island', desc: 'Battle Royale island, about a kilometre across: a city, towns, an airfield, a port and more, ringed by sea.', size: 512, ground: 'island', hills: 0,
+    sun: [-.5, .55, -.62], sky: [0x2b62b8, 0x86b6e6, 0xffe2bc, 0x6a6650], fog: [0xd2e0ea, .0012], sunCol: [0xfff0d8, 3.3], hemi: [0xb4d0ff, 0x5c5340],
+    grass: 0, noGrass: [], trees: false, pines: 0, puddles: [], br: true, navCs: 1, navTop: 24, doorW: 1.6, chunk: 48, follow: true,
+    navSkip: (x, z) => isleInF(x, z) < -4 && !(Math.abs(x - ISLE.gulag.x) < 20 && Math.abs(z - ISLE.gulag.z) < 16),
+    spawns: [[0,30],[30,0],[-238,-20],[-150,-18],[0,-200],[200,2],[0,200],[-300,-260],[-306,250],[300,-180],[126,350],[-390,40],[244,-56],[206,210],[-168,140],[-60,350]] },
 };
 const MAP_ID = (() => { const m = store.get('boomMap', 'yard'); return MAP_INFO[m] ? m : 'yard'; })();
 // Every player builds exactly the same map (props, grass, decals), which online play needs: world building draws
@@ -566,7 +567,7 @@ const MAXANISO = renderer.capabilities.getMaxAnisotropy();
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(lin(MAPDEF.fog[0]), MAPDEF.fog[1]);
-const camera = new THREE.PerspectiveCamera(78, innerWidth/innerHeight, 0.05, 900);
+const camera = new THREE.PerspectiveCamera(78, innerWidth/innerHeight, 0.05, MAPDEF.br ? 3200 : 900);   // the island sees out to the mainland
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 const vmScene = new THREE.Scene();
@@ -680,6 +681,8 @@ if (HIGH) {
   const params = { type: THREE.HalfFloatType, format: THREE.RGBAFormat };
   const rt = renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(size.x, size.y, params) : new THREE.WebGLRenderTarget(size.x, size.y, params);
   if (rt.samples !== undefined) rt.samples = msaaFor(pixelRatio);
+  // a 24-bit depth buffer (three's default here is 16-bit, too coarse past ~100 m: far surfaces flicker through each other)
+  rt.depthTexture = new THREE.DepthTexture(size.x, size.y); rt.depthTexture.type = THREE.UnsignedIntType;
   composer = new THREE.EffectComposer(renderer, rt);
   // On Apple GPUs every full-screen write into the 4x multisampled HDR frame is expensive, so only the scene and
   // the gun go into it. Sunbeams, bloom and motion blur are worked out separately (small) and the final pass,
@@ -785,11 +788,11 @@ const SHF = { on: !!MAPDEF.follow, cx: 0, cz: 0, E: 72 };   // big maps: the sha
 function shadowFitMap() {
   let top = 6; for (const b of boxes) top = Math.max(top, Math.min(b.maxY, 30));
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  const E = SHF.on ? SHF.E : ARENA + 6, cx = SHF.on ? SHF.cx : 0, cz = SHF.on ? SHF.cz : 0;
-  for (const x of [-E, E]) for (const y of [0, top + 4]) for (const z of [-E, E]) {
+  const E = SHF.on ? SHF.E : ARENA + 6, cx = SHF.on ? SHF.cx : 0, cz = SHF.on ? SHF.cz : 0, gy = SHF.on ? groundH(cx, cz) : 0;
+  for (const x of [-E, E]) for (const y of [SHF.on ? -22 : 0, top + (SHF.on ? 26 : 4)]) for (const z of [-E, E]) {
     _sc.set(x, y, z).applyMatrix4(sunBasisInv); x0 = Math.min(x0, _sc.x); x1 = Math.max(x1, _sc.x); y0 = Math.min(y0, _sc.y); y1 = Math.max(y1, _sc.y);
   }
-  sun.target.position.set(cx, 0, cz); sun.position.copy(SUN_DIR).multiplyScalar(110).add(sun.target.position);
+  sun.target.position.set(cx, gy, cz); sun.position.copy(SUN_DIR).multiplyScalar(110).add(sun.target.position);
   Object.assign(sun.shadow.camera, { left: x0, right: x1, bottom: y0, top: y1 }); sun.shadow.camera.updateProjectionMatrix();
 }
 function shadowIsDynamic(o) { for (let q = o; q; q = q.parent) if (SHC.dynRoots.has(q)) return true; return false; }
@@ -1424,6 +1427,7 @@ function building(o) {
     edge('w', 'z', -hd + pt, hd - pt, X(-hw + pt/2)); edge('e', 'z', -hd + pt, hd - pt, X(hw - pt/2));
   }
   if (o.extStairs) for (const e of o.extStairs) stairRun(X(e.lx), Z(e.lz), e.axis, e.dir*s, e.width || 1.2, 0, top + .05, o.stairMat || MAT.concreteDark);
+  if (MAPDEF.br && o.decor !== false) decorateBuilding(o);   // island.js: trim, gutters, doors, furniture
 }
 
 // ---- props ----
@@ -1795,16 +1799,20 @@ BUILD[MAP_ID]();
   const c = mk(S, 0, g => {
     g.fillStyle = '#000'; g.shadowColor = '#000'; g.shadowOffsetX = OFF;
     for (const b of boxes) {
-      if (b.minY > .1) continue;
-      const hk = Math.min(1, b.maxY / 2.4);
       if (b.coast) continue;
+      const gy = MAPDEF.br ? isleH((b.minX + b.maxX)/2, (b.minZ + b.maxZ)/2) : 0;
+      if (b.minY > gy + .1) continue;
+      const hk = Math.min(1, (b.maxY - gy) / 2.4);
       g.shadowBlur = (10 + 26*hk)*bk; g.globalAlpha = .35 + .5*hk;
       g.fillRect((b.minX + ARENA)*sc - OFF, (b.minZ + ARENA)*sc, (b.maxX - b.minX)*sc, (b.maxZ - b.minZ)*sc);
     }
   });
   const t = T(c, 1, 1); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  if (MAPDEF.br) { t.flipY = false; t.needsUpdate = true; ISLE_T.ao.value = t; }   // the island's terrain shader darkens itself with it
+  else {
   const ao = new THREE.Mesh(new THREE.PlaneGeometry(ARENA*2, ARENA*2), new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: .8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 }));
   ao.rotation.x = -Math.PI/2; ao.position.y = .025; ao.renderOrder = 1; scene.add(ao);
+  }
 }
 // Puddles: glossy dark water that mirrors the sky.
 if (MAPDEF.puddles.length) {
@@ -1954,6 +1962,8 @@ if (MAPDEF.trees || MAPDEF.rocks) {
 }
 bootMark('world+grass+trees');
 bake(statics, scene, MAPDEF.chunk || 0);
+statics.length = 0;   // the merged originals are gone from the scene: let them go
+if (MAPDEF.br) isleCullSetup();
 Math.random = _realRandom;
 scene.updateMatrixWorld(true);
 
@@ -1962,6 +1972,8 @@ scene.updateMatrixWorld(true);
 // =====================================================================
 const STEP = .45, STAND_H = 1.8, CROUCH_H = 1.15, SLIDE_H = .95, REACH = 2.25, BOT_REACH = 1.55;
 const _qa = [], _qb = [], _qc = [], _qd = [];
+// the ground's own height: 0 on the small maps, rolling hills on Crestfall Island
+const groundH = MAPDEF.br ? isleH : () => 0;
 function collide(p, r, H = STAND_H) {
   for (const b of queryBoxes(p.x - r, p.z - r, p.x + r, p.z + r, _qa)) {
     if (b.maxY <= p.y + STEP || b.minY >= p.y + H) continue;
@@ -1977,7 +1989,7 @@ function collide(p, r, H = STAND_H) {
 }
 // highest surface under the feet that we can stand on (includes steps up to STEP)
 function groundAt(p, r = .28) {
-  let g = 0;
+  let g = groundH(p.x, p.z);
   for (const b of queryBoxes(p.x - r, p.z - r, p.x + r, p.z + r, _qb))
     if (b.maxY <= p.y + STEP && b.maxY > g && p.x > b.minX - r && p.x < b.maxX + r && p.z > b.minZ - r && p.z < b.maxZ + r) g = b.maxY;
   return g;
@@ -1989,7 +2001,7 @@ function ceilingAt(p, r, fromY) {
   return c;
 }
 function surfaceBelow(x, z, maxY, pad = .05) {
-  let g = 0, nm = false;
+  let g = groundH(x, z), nm = false;
   for (const b of queryBoxes(x - pad, z - pad, x + pad, z + pad, _qc))
     if (b.maxY <= maxY + 1e-3 && b.maxY > g && x > b.minX - pad && x < b.maxX + pad && z > b.minZ - pad && z < b.maxZ + pad) { g = b.maxY; nm = b.noMantle; }
   surfaceBelow.noMantle = nm;
@@ -2103,7 +2115,10 @@ function rayWorld(o, d, far) {
   let t = rayBoxes(o.x, o.y, o.z, d.x, d.y, d.z, far);
   worldHit.box = null;
   if (t < Infinity) { worldHit.box = rayHit.box; worldHit.surface = rayHit.box.surface; worldHit.noDecal = rayHit.box.noDecal; worldHit.n.set(rayHit.nx, rayHit.ny, rayHit.nz); }
-  if (d.y < 0 && o.y > 0) {
+  if (MAPDEF.br) {   // the island's hills
+    const tt = isleRay(o, d, Math.min(t, far));
+    if (tt < t) { t = tt; worldHit.box = null; worldHit.surface = 'dirt'; worldHit.noDecal = false; isleNormal(o.x + d.x*tt, o.z + d.z*tt, worldHit.n); }
+  } else if (d.y < 0 && o.y > 0) {
     const tg = -o.y/d.y;
     if (tg < Math.min(t, far) && Math.abs(o.x + d.x*tg) <= ARENA && Math.abs(o.z + d.z*tg) <= ARENA) { t = tg; worldHit.box = null; worldHit.surface = groundCollider.surface; worldHit.noDecal = false; worldHit.n.set(0, 1, 0); }
   }
@@ -2119,7 +2134,7 @@ function boxExit(b, o, d) {
 }
 function clearLine(a, b) {
   _d.subVectors(b, a); const dist = _d.length(); if (dist < 1e-4) return true;
-  return rayBoxes(a.x, a.y, a.z, _d.x/dist, _d.y/dist, _d.z/dist, dist) === Infinity;
+  return rayBoxes(a.x, a.y, a.z, _d.x/dist, _d.y/dist, _d.z/dist, dist) === Infinity && !(MAPDEF.br && isleBlocks(a.x, a.y, a.z, b.x, b.y, b.z));
 }
 function los(a, b) { return clearLine(eye(a, _a), eye(b, _b)) && !(smokes.length && smokeBlocks(_a, _b)); }
 // Bots' hit zones: a sphere on the head bone and an upright cylinder around the body
@@ -2146,86 +2161,100 @@ function rayFighters(o, d, far) {
 // Bot navigation: a grid of walkable surfaces (ground, floors, stairs, roofs, container tops)
 // linked by walk / climb / drop / vault edges, searched with A*.
 // =====================================================================
-const NAV = { cs: MAPDEF.navCs || .5, n: 0, half: 0, cells: null, nodes: [], edges: [] };
+const NAV = { cs: MAPDEF.navCs || .5, n: 0, half: 0, count: 0, start: null, x: null, y: null, z: null, pass: null, main: null, top: MAPDEF.navTop || 8 };
+// Nodes live in flat typed arrays, sorted by cell (cell k owns nodes start[k] … start[k+1]-1), and their links
+// are worked out when A* needs them, so even a 1 km island with a million nodes costs only tens of MB.
 function buildNav() {
   const cs = NAV.cs, half = ARENA - .25, n = Math.ceil(half*2/cs);
-  NAV.n = n; NAV.half = half; NAV.cells = new Array(n*n);
-  const near = [], rr = .28;
+  NAV.n = n; NAV.half = half;
+  let cap = Math.ceil(n*n*1.15) + 1024, X = new Float32Array(cap), Y = new Float32Array(cap), Z = new Float32Array(cap), P = new Uint8Array(cap);
+  const start = new Int32Array(n*n + 1), near = [], rr = .28, cands = [];
+  let cnt = 0;
+  const add = (x, y, z, p) => {
+    if (cnt >= cap) { cap = Math.ceil(cap*1.4); for (const k of ['X', 'Y', 'Z', 'P']) { const a = { X, Y, Z, P }[k], b = new a.constructor(cap); b.set(a); if (k === 'X') X = b; else if (k === 'Y') Y = b; else if (k === 'Z') Z = b; else P = b; } }
+    X[cnt] = x; Y[cnt] = y; Z[cnt] = z; P[cnt] = p; cnt++;
+  };
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const x = -half + (i + .5)*cs, z = -half + (j + .5)*cs, list = [];
+    start[i*n + j] = cnt;
+    const x = -half + (i + .5)*cs, z = -half + (j + .5)*cs;
+    if (MAPDEF.navSkip && MAPDEF.navSkip(x, z)) continue;   // out at sea: nothing to walk on
+    const gy = groundH(x, z);
     queryBoxes(x - cs/2, z - cs/2, x + cs/2, z + cs/2, near);
-    const cands = [{ y: 0, pass: false, nm: false }];
+    if (!near.length) { add(x, gy, z, 0); continue; }   // open ground: one node, nothing to check
+    cands.length = 0; cands.push({ y: gy, pass: false, nm: false });
     for (const b of near) if (b.minX < x + cs/2 && b.maxX > x - cs/2 && b.minZ < z + cs/2 && b.maxZ > z - cs/2) cands.push({ y: b.maxY, pass: b.pass, nm: b.noMantle });
     cands.sort((a, b) => a.y - b.y);
+    let last = null;
     for (const c of cands) {
-      if (list.length && Math.abs(list[list.length - 1].y - c.y) < .05) { const last = list[list.length - 1]; last.pass = last.pass && c.pass; last.nm = last.nm || c.nm; continue; }
-      if (c.nm || c.y > 8) continue;
+      if (last && Math.abs(last.y - c.y) < .05) { last.pass = last.pass && c.pass; last.nm = last.nm || c.nm; continue; }
+      last = c; c.keep = false;
+    }
+    for (const c of cands) {
+      if (c.keep === undefined) continue;
+      if (c.nm || c.y > gy + NAV.top) continue;
       let low = false, bad = false;
       for (const b of near) {
         if (b.minY >= c.y + 1.75 || b.maxY <= c.y + STEP*.9) continue;
-        const cx = clamp(x, b.minX, b.maxX), cz = clamp(z, b.minZ, b.maxZ);
-        if ((x - cx)**2 + (z - cz)**2 >= rr*rr) continue;
+        const qx = clamp(x, b.minX, b.maxX), qz = clamp(z, b.minZ, b.maxZ);
+        if ((x - qx)**2 + (z - qz)**2 >= rr*rr) continue;
         if (b.minY - c.y >= 1.0) low = true; else { bad = true; break; }
       }
-      if (bad) continue;
-      const node = { x, z, y: c.y, i, j, pass: low || c.pass, id: NAV.nodes.length };
-      NAV.nodes.push(node); list.push(node);
+      if (!bad) add(x, c.y, z, low || c.pass ? 1 : 0);
     }
-    NAV.cells[i*n + j] = list.filter(nd => !nd.removed);
   }
-  const at = (i, j) => (i < 0 || j < 0 || i >= n || j >= n) ? [] : NAV.cells[i*n + j];
-  const flat = (i, j, y) => at(i, j).some(m => !m.pass && Math.abs(m.y - y) <= .5);
-  for (const A of NAV.nodes) {
-    const E = [];
-    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
-      if (!di && !dj) continue;
-      const diag = di && dj, dist = cs*(diag ? 1.414 : 1);
-      for (const B of at(A.i + di, A.j + dj)) {
-        const dy = B.y - A.y;
-        if (!A.pass && !B.pass) {
-          if (Math.abs(dy) <= .5) { if (!diag || (flat(A.i + di, A.j, A.y) && flat(A.i, A.j + dj, A.y))) E.push({ to: B.id, c: dist + Math.abs(dy)*.5, t: 0 }); }
-          else if (dy > .5 && dy <= BOT_REACH && !diag) E.push({ to: B.id, c: dist + 1.5, t: 1 });
-          else if (dy < -.5 && dy >= -6 && !diag) E.push({ to: B.id, c: dist + .5 - dy*.15, t: 2 });
-        } else if (!A.pass && B.pass) { if (dy > -.1 && dy <= BOT_REACH && !diag) E.push({ to: B.id, c: dist + 1.5, t: 1 }); }
-        else if (A.pass && !B.pass) { if (dy <= .5 && dy >= -6 && !diag) E.push({ to: B.id, c: dist + .3, t: dy < -.5 ? 2 : 0 }); }
-        else if (Math.abs(dy) <= .1 && !diag) E.push({ to: B.id, c: dist + 2.5, t: 0 });
-      }
-    }
-    NAV.edges[A.id] = E;
-  }
-  // keep only the largest connected region on the ground so bots never chase unreachable spots
-  const comp = new Int32Array(NAV.nodes.length).fill(-1);
+  start[n*n] = cnt;
+  NAV.count = cnt; NAV.start = start; NAV.x = X.subarray(0, cnt); NAV.y = Y.subarray(0, cnt); NAV.z = Z.subarray(0, cnt); NAV.pass = P.subarray(0, cnt);
+  NAV.ci = new Int32Array(cnt); for (let k = 0; k < n*n; k++) for (let id = start[k]; id < start[k + 1]; id++) NAV.ci[id] = k;
+  // keep only the largest connected region so bots never chase unreachable spots
+  const comp = new Int32Array(cnt).fill(-1), stack = new Int32Array(cnt);
   let best = -1, bestSize = 0, cid = 0;
-  for (const s of NAV.nodes) {
-    if (comp[s.id] >= 0) continue;
-    const stack = [s.id]; comp[s.id] = cid; let size = 0;
-    while (stack.length) { const k = stack.pop(); size++; for (const e of NAV.edges[k]) if (comp[e.to] < 0) { comp[e.to] = cid; stack.push(e.to); } }
+  for (let s = 0; s < cnt; s++) {
+    if (comp[s] >= 0) continue;
+    let sp = 0, size = 0; stack[sp++] = s; comp[s] = cid;
+    while (sp) { const k = stack[--sp]; size++; navEdges(k, (to) => { if (comp[to] < 0) { comp[to] = cid; stack[sp++] = to; } }); }
     if (size > bestSize) { bestSize = size; best = cid; }
     cid++;
   }
-  NAV.main = comp; NAV.mainId = best;
+  NAV.main = new Uint8Array(cnt); for (let k = 0; k < cnt; k++) NAV.main[k] = comp[k] === best ? 1 : 0;
 }
-function navCell(x, z) {
-  const i = Math.floor((x + NAV.half)/NAV.cs), j = Math.floor((z + NAV.half)/NAV.cs);
-  return (i < 0 || j < 0 || i >= NAV.n || j >= NAV.n) ? [] : NAV.cells[i*NAV.n + j];
+// the links out of node a: walk (t 0), climb or vault up (t 1), drop down (t 2); cb(to, cost, type)
+function navEdges(a, cb) {
+  const n = NAV.n, cs = NAV.cs, S = NAV.start, Y = NAV.y, Pp = NAV.pass, k = NAV.ci[a], ai = (k/n) | 0, aj = k - ai*n, ay = Y[a], ap = Pp[a];
+  const flat = (i, j) => { if (i < 0 || j < 0 || i >= n || j >= n) return false; const c = i*n + j; for (let m = S[c]; m < S[c + 1]; m++) if (!Pp[m] && Math.abs(Y[m] - ay) <= .5) return true; return false; };
+  for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+    if (!di && !dj) continue;
+    const i = ai + di, j = aj + dj; if (i < 0 || j < 0 || i >= n || j >= n) continue;
+    const diag = di && dj, dist = diag ? cs*1.414 : cs, c = i*n + j;
+    for (let b = S[c]; b < S[c + 1]; b++) {
+      const dy = Y[b] - ay, bp = Pp[b];
+      if (!ap && !bp) {
+        if (Math.abs(dy) <= .5) { if (!diag || (flat(ai + di, aj) && flat(ai, aj + dj))) cb(b, dist + Math.abs(dy)*.5, 0); }
+        else if (dy > .5 && dy <= BOT_REACH && !diag) cb(b, dist + 1.5, 1);
+        else if (dy < -.5 && dy >= -6 && !diag) cb(b, dist + .5 - dy*.15, 2);
+      } else if (!ap && bp) { if (dy > -.1 && dy <= BOT_REACH && !diag) cb(b, dist + 1.5, 1); }
+      else if (ap && !bp) { if (dy <= .5 && dy >= -6 && !diag) cb(b, dist + .3, dy < -.5 ? 2 : 0); }
+      else if (Math.abs(dy) <= .1 && !diag) cb(b, dist + 2.5, 0);
+    }
+  }
 }
 function nearestNode(x, y, z) {
   let best = -1, bd = Infinity;
+  const n = NAV.n, S = NAV.start, ci = Math.floor((x + NAV.half)/NAV.cs), cj = Math.floor((z + NAV.half)/NAV.cs);
   for (let r = 0; r <= 4 && best < 0; r++) {
-    const ci = Math.floor((x + NAV.half)/NAV.cs), cj = Math.floor((z + NAV.half)/NAV.cs);
     for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
-      if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r || i < 0 || j < 0 || i >= NAV.n || j >= NAV.n) continue;
-      for (const nd of NAV.cells[i*NAV.n + j]) {
-        if (nd.pass || NAV.main[nd.id] !== NAV.mainId) continue;
-        const d = (nd.x - x)**2 + (nd.z - z)**2 + ((nd.y - y)*2)**2 + (nd.y > y + .6 ? 4 : 0);
-        if (d < bd) { bd = d; best = nd.id; }
+      if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r || i < 0 || j < 0 || i >= n || j >= n) continue;
+      const c = i*n + j;
+      for (let id = S[c]; id < S[c + 1]; id++) {
+        if (NAV.pass[id] || !NAV.main[id]) continue;
+        const ny = NAV.y[id], d = (NAV.x[id] - x)**2 + (NAV.z[id] - z)**2 + ((ny - y)*2)**2 + (ny > y + .6 ? 4 : 0);
+        if (d < bd) { bd = d; best = id; }
       }
     }
   }
   return best;
 }
 const astar = (() => {
-  let g, came, open, closed, stamp = 0, hF, hId, hLen = 0, cap = 0;
+  let g, came, ctype, open, closed, stamp = 0, hF, hId, hLen = 0, cap = 0;
   function push(id, f) {
     if (hLen >= cap) return;
     let i = hLen++;
@@ -2244,14 +2273,22 @@ const astar = (() => {
     hF[i] = lf; hId[i] = lid;
     return top;
   }
+  let K = 0, gk = 0, tx = 0, ty = 0, tz = 0;
+  const relax = (to, c, t) => {
+    if (closed[to] === stamp) return;
+    const ng = gk + c;
+    if (open[to] !== stamp || ng < g[to]) {
+      open[to] = stamp; g[to] = ng; came[to] = K; ctype[to] = t;
+      push(to, ng + 1.6*(Math.hypot(NAV.x[to] - tx, NAV.z[to] - tz) + Math.abs(NAV.y[to] - ty)));
+    }
+  };
   // weighted A* (heuristic x1.6): far fewer nodes explored for near-identical routes
   return (s, t, maxIter = 14000) => {
-    const N = NAV.nodes.length;
-    if (!g) { g = new Float32Array(N); came = new Int32Array(N); open = new Uint32Array(N); closed = new Uint32Array(N); cap = N*6; hF = new Float32Array(cap); hId = new Int32Array(cap); }
+    const N = NAV.count;
+    if (!g) { g = new Float32Array(N); came = new Int32Array(N); ctype = new Int8Array(N); open = new Uint32Array(N); closed = new Uint32Array(N); cap = Math.min(N*6, 600000); hF = new Float32Array(cap); hId = new Int32Array(cap); }
     stamp++; hLen = 0;
-    const T = NAV.nodes[t], tx = T.x, ty = T.y, tz = T.z, nodes = NAV.nodes;
-    const h = id => { const a = nodes[id]; return Math.hypot(a.x - tx, a.z - tz) + Math.abs(a.y - ty); };
-    g[s] = 0; open[s] = stamp; came[s] = -1; push(s, h(s));
+    tx = NAV.x[t]; ty = NAV.y[t]; tz = NAV.z[t];
+    g[s] = 0; open[s] = stamp; came[s] = -1; ctype[s] = 0; push(s, 0);
     let it = 0;
     while (hLen > 0 && it++ < maxIter) {
       const k = pop();
@@ -2259,35 +2296,32 @@ const astar = (() => {
       closed[k] = stamp;
       if (k === t) {
         const path = [], types = []; let c = t;
-        while (c !== -1) { path.push(c); c = came[c]; }
-        path.reverse();
-        for (let i = 0; i < path.length; i++) types.push(i === 0 ? 0 : NAV.edges[path[i - 1]].find(e => e.to === path[i]).t);
+        while (c !== -1) { path.push(c); types.push(ctype[c]); c = came[c]; }
+        path.reverse(); types.reverse(); types[0] = 0;
         return { nodes: path, types };
       }
-      const E = NAV.edges[k], gk = g[k];
-      for (let i = 0; i < E.length; i++) {
-        const e = E[i], to = e.to;
-        if (closed[to] === stamp) continue;
-        const ng = gk + e.c;
-        if (open[to] !== stamp || ng < g[to]) { open[to] = stamp; g[to] = ng; came[to] = k; push(to, ng + 1.6*h(to)); }
-      }
+      K = k; gk = g[k];
+      navEdges(k, relax);
     }
     return null;
   };
 })();
 // is the straight line between two points walkable on the same level?
 function navLine(x0, z0, x1, z1, y) {
-  const d = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(d / .25);
+  const d = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(d / .25), N = NAV.n, S = NAV.start;
   for (let k = 1; k <= n; k++) {
-    const x = x0 + (x1 - x0)*k/n, z = z0 + (z1 - z0)*k/n;
-    if (!navCell(x, z).some(nd => !nd.pass && Math.abs(nd.y - y) < .3)) return false;
+    const x = x0 + (x1 - x0)*k/n, z = z0 + (z1 - z0)*k/n, i = Math.floor((x + NAV.half)/NAV.cs), j = Math.floor((z + NAV.half)/NAV.cs);
+    if (i < 0 || j < 0 || i >= N || j >= N) return false;
+    let ok = false;
+    for (let id = S[i*N + j]; id < S[i*N + j + 1]; id++) if (!NAV.pass[id] && Math.abs(NAV.y[id] - y) < .3) { ok = true; break; }
+    if (!ok) return false;
   }
   return true;
 }
 bootMark('physics setup');
 buildNav();
 // snap every spawn onto a free ground node
-spawns = spawns.map(([x, z]) => { const id = nearestNode(x, 0, z), nd = NAV.nodes[id]; return id >= 0 ? [nd.x, nd.z, nd.y] : [x, z, 0]; });
+spawns = spawns.map(([x, z]) => { const id = nearestNode(x, groundH(x, z), z); return id >= 0 ? [NAV.x[id], NAV.z[id], NAV.y[id]] : [x, z, 0]; });
 
 // =====================================================================
 // Audio
@@ -3289,7 +3323,7 @@ function spawnGrenade(p, v, fuse, owner, kind = 'frag', sid = 0) {
 }
 const _qn = [];
 function nadeSolid(x, y, z) {
-  if (y < NR) return true;
+  if (y < groundH(x, z) + NR) return true;
   for (const b of queryBoxes(x - NR, z - NR, x + NR, z + NR, _qn))
     if (y > b.minY - NR && y < b.maxY + NR && x > b.minX - NR && x < b.maxX + NR && z > b.minZ - NR && z < b.maxZ + NR) return true;
   return false;
@@ -5387,11 +5421,39 @@ function updatePlayer(dt) {
 
 // ---- bot navigation ----
 let navBudget = 1;   // path searches allowed this frame, so several bots never repath at once
+// a big Battle Royale: bots far from the camera think and move every 4th frame (with the time saved up) and
+// aren't drawn past the haze; everyone close by runs every frame
+let botFrame = 0;
+function updateBots(dt) {
+  botFrame++;
+  const cx = camera.position.x, cz = camera.position.z, spec = SPEC.on ? SPEC.target : null;
+  for (let i = 0; i < bots.length; i++) {
+    const b = bots[i];
+    if (BR.on && b !== spec) {
+      const d2 = (b.pos.x - cx)**2 + (b.pos.z - cz)**2;
+      if (d2 > 170*170 && b.br && b.br.st === 'ground' && !b.downed) {
+        b.lodDt = (b.lodDt || 0) + dt;
+        if ((botFrame + i) & 3) continue;
+        const ddt = Math.min(b.lodDt, .12); b.lodDt = 0;
+        updateBot(b, ddt);
+        if (b.alive) b.group.visible = d2 < 320*320;
+        continue;
+      }
+      b.lodDt = 0;
+      if (b.alive && !b.group.visible && b.br && b.br.st === 'ground') b.group.visible = true;
+    }
+    updateBot(b, dt);
+  }
+}
 function planPath(b, goal) {
   if (navBudget <= 0) return false;
   navBudget--;
   b.repathAt = now + .8 + Math.random()*.6;
-  const s = nearestNode(b.pos.x, b.pos.y, b.pos.z), g = nearestNode(goal.x, goal.y, goal.z);
+  // far away (a Battle Royale): head for a point 70 m along the way, the next leg is planned on the way
+  let gx = goal.x, gy = goal.y, gz = goal.z;
+  const ddx = gx - b.pos.x, ddz = gz - b.pos.z, dd = Math.hypot(ddx, ddz);
+  if (dd > 90) { gx = b.pos.x + ddx*70/dd; gz = b.pos.z + ddz*70/dd; gy = groundH(gx, gz); }
+  const s = nearestNode(b.pos.x, b.pos.y, b.pos.z), g = nearestNode(gx, gy, gz);
   b.path = s >= 0 && g >= 0 ? astar(s, g) : null; b.pi = 1;
   return true;
 }
@@ -5399,25 +5461,25 @@ function followPath(b) {
   const P = b.path; if (!P) return null;
   let skips = 0;
   while (b.pi < P.nodes.length) {
-    const n = NAV.nodes[P.nodes[b.pi]], type = P.types[b.pi];
-    const dx = n.x - b.pos.x, dz = n.z - b.pos.z, d = Math.hypot(dx, dz);
+    const id = P.nodes[b.pi], type = P.types[b.pi], nx = NAV.x[id], ny = NAV.y[id], nz = NAV.z[id];
+    const dx = nx - b.pos.x, dz = nz - b.pos.z, d = Math.hypot(dx, dz);
     if (type === 1) {
       if (d < .95 && b.onGround) {
         // climb onto it, or vault across vault-only nodes (fences, rails, window sills) to the far side
-        let k = b.pi, top = n.y;
-        while (k < P.nodes.length - 1 && NAV.nodes[P.nodes[k]].pass) { top = Math.max(top, NAV.nodes[P.nodes[k]].y); k++; }
-        const L = NAV.nodes[P.nodes[k]];
-        const vault = n.pass || L.y < top - .3;
-        startMantle(b, { type: vault ? 'vault' : 'climb', top: Math.max(top, L.y), to: V(L.x, L.y, L.z), ceil: ceilingAt({ x: n.x, z: n.z }, .15, top + .05) });
+        let k = b.pi, top = ny;
+        while (k < P.nodes.length - 1 && NAV.pass[P.nodes[k]]) { top = Math.max(top, NAV.y[P.nodes[k]]); k++; }
+        const L = P.nodes[k], ly = NAV.y[L];
+        const vault = NAV.pass[id] || ly < top - .3;
+        startMantle(b, { type: vault ? 'vault' : 'climb', top: Math.max(top, ly), to: V(NAV.x[L], ly, NAV.z[L]), ceil: ceilingAt({ x: nx, z: nz }, .15, top + .05) });
         b.pi = k + 1; return null;
       }
       return { x: dx, z: dz };
     }
-    if (d < .35 && Math.abs(n.y - b.pos.y) < 1) { b.pi++; continue; }
+    if (d < .35 && Math.abs(ny - b.pos.y) < 1) { b.pi++; continue; }
     // shortcut straight runs on the same level
     if (skips < 4 && type === 0 && b.pi + 1 < P.nodes.length && P.types[b.pi + 1] === 0) {
-      const n2 = NAV.nodes[P.nodes[b.pi + 1]];
-      if (!n2.pass && Math.abs(n2.y - b.pos.y) < .3 && navLine(b.pos.x, b.pos.z, n2.x, n2.z, b.pos.y)) { b.pi++; skips++; continue; }
+      const n2 = P.nodes[b.pi + 1];
+      if (!NAV.pass[n2] && Math.abs(NAV.y[n2] - b.pos.y) < .3 && navLine(b.pos.x, b.pos.z, NAV.x[n2], NAV.z[n2], b.pos.y)) { b.pi++; skips++; continue; }
     }
     return { x: dx, z: dz };
   }
@@ -7153,7 +7215,7 @@ function exportMapData() {
   const SURF = ['concrete', 'metal', 'wood', 'dirt', 'flesh', 'scorch'], r = v => Math.round(v*1000)/1000;
   return { [MAP_ID]: { arena: ARENA, ground: SURF.includes(MAPDEF.ground) ? MAPDEF.ground : 'dirt',
     boxes: boxes.map(b => [r(b.minX), r(b.minY), r(b.minZ), r(b.maxX), r(b.maxY), r(b.maxZ), (b.pass ? 1 : 0) | (b.noMantle ? 2 : 0) | (b.noDecal ? 4 : 0), Math.max(0, SURF.indexOf(b.surface))]),
-    spawns: spawns.map(s => s.map(r)), navNodes: NAV.nodes.length } };
+    spawns: spawns.map(s => s.map(r)), navNodes: NAV.count } };
 }
 // ---- Installing as an app: Chrome and Edge offer it for a site with a manifest and an offline cache (sw.js).
 // The installed game opens in its own window from the Dock / desktop, and single-player works offline. ----
@@ -7256,6 +7318,7 @@ function applyPreset(i) {
 }
 function renderFrame(dt) {
   grassCam.value.copy(camera.position);
+  if (MAPDEF.br) isleCull(camera.position);
   if (shadowEvery > 1) renderer.shadowMap.needsUpdate = frameNo % shadowEvery === 0;
   frameNo++;
   if (usePost) { finalPass.uniforms.time.value = now % 10; composer.render(dt); }
@@ -7439,11 +7502,11 @@ function frame(t, uncapped) {
     if (!KC.on) kcStart();
     kcUpdate(dt);
   } else if (running) {
-    now += dt; matchTime -= dt; navBudget = 1;
+    now += dt; matchTime -= dt; navBudget = BR.on ? 3 : 1;
     if (!saidMinute && matchTime < 60 && MATCH_TIME > 90) { saidMinute = true; say('One minute remaining'); }
     updateLook(dt);
     updatePlayer(dt);
-    for (const b of bots) updateBot(b, dt);
+    updateBots(dt);
     separate();
     updateGrenades(dt); runTimers(); updateObjectives(dt); updateSmokes(dt); updateClaymores(); updateStrikes(dt);
     brTick(dt);
