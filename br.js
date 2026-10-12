@@ -373,8 +373,11 @@ function brAirMove(f, dt, ctl) {
   if (e < 14) { const r = Math.hypot(f.pos.x, f.pos.z) || 1, k = (14 - e)*1.6; tvx -= f.pos.x/r*k; tvz -= f.pos.z/r*k; }   // the wind pushes you back over the island
   const kh = 1 - Math.exp(-dt*(chute ? 2.2 : 1.5)), kv = 1 - Math.exp(-dt*(chute ? 3 : 1.1));
   b.vx += (tvx - b.vx)*kh; b.vz += (tvz - b.vz)*kh; b.vy += (tvy - b.vy)*kv;
+  const y0 = f.pos.y;
   f.pos.x += b.vx*dt; f.pos.z += b.vz*dt; f.pos.y += b.vy*dt;
-  const gy = surfaceBelow(f.pos.x, f.pos.z, f.pos.y + .3), alt = f.pos.y - gy;
+  // the highest thing under you between where you were and where you are now (a fast fall can cross a whole roof
+  // in one frame), wide as your body so you can't slip past a roof's edge into the building
+  const gy = surfaceBelow(f.pos.x, f.pos.z, y0 + .3, .3), alt = f.pos.y - gy;
   b.alt = alt;
   if (b.st === 'fall' && (alt < BR_FALL.auto || b.wantChute)) brChute(f);
   if (alt <= 0) brLand(f, gy);
