@@ -125,6 +125,7 @@ function isleHard(x0, z0, x1, z1) { ISLE.hard.push([Math.min(x0, x1), Math.min(z
 // a building with loot spots on every floor (and on the roof when there's a way up)
 function isleRoom(o, tier = 1, per = 1) {
   if (o.furnish === undefined) o.furnish = true;
+  if (o.roof !== 'pitched' && !o.roofSlab && MI.roofTop) o.roofSlab = MI.roofTop;   // flat roofs: weathered concrete, not wall paint
   building(o);
   const { cx, cz, w, d, floors = 1, fh = 3.1, t = .3 } = o, near = [];
   isleHard(cx - w/2 - .5, cz - d/2 - .5, cx + w/2 + .5, cz + d/2 + .5);
@@ -1143,8 +1144,21 @@ function isleCountry() {
   });
 }
 // ---- the whole island ----
+// the island's own materials get the photo-scanned surfaces too (see pbrApply in index.html)
+function islePBR() {
+  if (MI.pbr) return; MI.pbr = true;
+  for (const m of [MI.red, MI.white, MI.green, MI.blue, MI.cream, MI.grey]) pbrApply(m, 'weathered_plank_siding', { noMap: true, ns: 1.2 });
+  pbrApply(MI.stone, 'concrete_wall_008', { tint: 0xd8cbb2 }); pbrApply(MI.army, 'concrete_wall_008', { tint: 0x9aa085 });
+  pbrApply(MI.plank, 'weathered_plank_siding', { tint: 0xe0c8a8 });
+  pbrApply(MI.dirtRoad, 'gravel_road', { rep: 2.5 }); pbrApply(MI.road, 'asphalt_02', { rep: 2.5 });
+  pbrApply(MI.pave, 'rectangular_paving', { rep: 1.2 }); pbrApply(MI.quay, 'concrete_floor_02', { rep: 2 });
+  for (const m of MI.stucco) pbrApply(m, 'white_stucco', { tint: m.color.clone().convertLinearToSRGB().getHex() });
+  pbrApply(MI.brickRed, 'red_brick_03'); pbrApply(MI.brickDark, 'red_brick_03', { tint: 0x9a8a82 });
+  MI.roofTop = pbrApply(heightAO(stdMat(C.concrete, 1, { roughness: .95 })), 'concrete_floor_02', { tint: 0xb4b0a8 });
+  pbrApply(MI.office, 'concrete_wall_008', { tint: 0xe2e0dc }); pbrApply(MI.cool, 'concrete_wall_008', { tint: 0xd2cdc2 });
+}
 function buildIsland() {
-  isleMats(); isleMats2();
+  isleMats(); isleMats2(); islePBR();
   // where things go: the harbor's quay on the straight east coast, every area at the height of its land
   const H = islePoi('harbor'); H.x = 114 + (ISLE_QUAYS[0].c - 147);
   for (const p of ISLE_POIS) p.y = isleLevel(p.x, p.z, p.coast);
@@ -1336,11 +1350,13 @@ function isleRockTex() {
 function isleLand() {
   const N = ISLE_T.N, O = ISLE_T.O, rockC = isleRockTex();
   const mat = stdMat(C.grass, 1, { roughness: .95, bumpScale: .04, normal: 1.1, rough: [1, -.1] });
-  const sandTex = T_(C.sand), rockTex = T_(rockC), dirtTex = T_(C.sand);
+  const scan = !!(window.BOOM_TEX && BOOM_TEX.leafy_grass);   // photo-scanned ground (textures.js) when it's there
+  let sandTex = T_(C.sand), rockTex = T_(rockC), dirtTex = T_(C.sand), leafTex = dirtTex;
+  if (scan) { pbrApply(mat, 'leafy_grass', { tint: 0x9fc486 }); sandTex = pbrTex('coast_sand_01', 'd', 1); rockTex = pbrTex('rock_face', 'd', 1); dirtTex = pbrTex('gravel_road', 'd', 1); leafTex = pbrTex('forest_leaves_02', 'd', 1); }
   function T_(c) { const t = T(c, 1); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
   const G = 256, LV = 4, morph = [[80, 116], [170, 244], [380, 500], [1e5, 1e5]];
   mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tH: { value: ISLE_T.tex }, tSplat: { value: ISLE_T.splat }, tSand: { value: sandTex }, tRock: { value: rockTex }, tDirt: { value: dirtTex }, tAO: ISLE_T.ao });
+    Object.assign(sh.uniforms, { tH: { value: ISLE_T.tex }, tSplat: { value: ISLE_T.splat }, tSand: { value: sandTex }, tRock: { value: rockTex }, tDirt: { value: dirtTex }, tLeaf: { value: leafTex }, tAO: ISLE_T.ao });
     sh.vertexShader = `uniform sampler2D tH; varying vec3 vWp;
       vec2 hAt(vec2 p) { return texture2D(tH, (p - ${O.toFixed(1)} + .5) / ${N.toFixed(1)}).rg; }
 ` + sh.vertexShader
@@ -1356,11 +1372,11 @@ function isleLand() {
         vec3 wPos = vec3(wxz.x, hAt(wxz).r, wxz.y);
         vWp = wPos;
         #ifdef USE_UV
-          vUv = (uvTransform * vec3(wxz / 5., 1.)).xy;
+          vUv = (uvTransform * vec3(wxz / ${scan ? '2.' : '5.'}, 1.)).xy;
         #endif`)
       .replace('#include <project_vertex>', 'vec4 mvPosition = viewMatrix * vec4(wPos, 1.); gl_Position = projectionMatrix * mvPosition;')
       .replace('#include <worldpos_vertex>', 'vec4 worldPosition = vec4(wPos, 1.);');
-    sh.fragmentShader = `uniform sampler2D tH, tSplat, tSand, tRock, tDirt, tAO; varying vec3 vWp;
+    sh.fragmentShader = `uniform sampler2D tH, tSplat, tSand, tRock, tDirt, tLeaf, tAO; varying vec3 vWp;
       vec2 hAt(vec2 p) { return texture2D(tH, (p - ${O.toFixed(1)} + .5) / ${N.toFixed(1)}).rg; }
 ` + sh.fragmentShader
       .replace('#include <normal_fragment_begin>', `
@@ -1372,12 +1388,15 @@ function isleLand() {
       vec2 tuv = (vWp.xz - ${O.toFixed(1)}) / ${(N - 1).toFixed(1)};
       vec4 sp = texture2D(tSplat, tuv);
       float coast = hAt(vWp.xz).g, sandK = 1. - clamp((coast - ${(ISLE_BEACH - 2.5).toFixed(1)}) / 4., 0., 1.);
+      ${scan ? `diffuseColor.rgb = mix(diffuseColor.rgb, sRGBToLinear(texture2D(map, vUv*.29 + vec2(.37, .11))).rgb * diffuse, .42);   // a second, larger sample hides the tiling` : ''}
       vec3 g = diffuseColor.rgb;
       vec3 dry = g * vec3(1.32, 1.08, .55) + vec3(.03, .02, 0.);
-      vec3 dirt = sRGBToLinear(texture2D(tDirt, vWp.xz * .21)).rgb * vec3(.66, .5, .36);
+      ${scan ? `vec3 dirt = mix(sRGBToLinear(texture2D(tLeaf, vWp.xz * .4)).rgb, sRGBToLinear(texture2D(tDirt, vWp.xz * .33)).rgb, smoothstep(.35, .65, sp.a));
+      vec3 rock = sRGBToLinear(texture2D(tRock, vWp.xz * .2)).rgb;
+      vec3 sand = sRGBToLinear(texture2D(tSand, vWp.xz * .4)).rgb;` : `vec3 dirt = sRGBToLinear(texture2D(tDirt, vWp.xz * .21)).rgb * vec3(.66, .5, .36);
       vec3 rock = sRGBToLinear(texture2D(tRock, vWp.xz * .11)).rgb * vec3(.46, .42, .37);
-      vec3 sand = sRGBToLinear(texture2D(tSand, vWp.xz * .17)).rgb * vec3(1.08, 1., .9);
-      vec3 c = mix(g, dry, sp.r * .85);
+      vec3 sand = sRGBToLinear(texture2D(tSand, vWp.xz * .17)).rgb * vec3(1.08, 1., .9);`}
+      vec3 c = mix(g, dry, sp.r * ${scan ? '.22' : '.85'});
       c *= .84 + .3 * sp.a;                                  // big soft patches so the grass never looks tiled
       c = mix(c, dirt, sp.g);
       c = mix(c, rock, sp.b);
@@ -1453,6 +1472,7 @@ function isleTrunk(h, r0, r1, bend, seed, lo = false) {
   const g = lo ? new THREE.CylinderGeometry(r1, r0, h, 5, 1, true) : new THREE.CylinderGeometry(r1, r0, h, 8, 4, true); g.translate(0, h/2, 0);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) { const y = p.getY(i), k = y/h, flare = 1 + Math.max(0, .25 - k)*1.6; p.setXYZ(i, p.getX(i)*flare + Math.sin(k*2.4 + seed)*bend*k, y, p.getZ(i)*flare + Math.cos(k*1.7 + seed)*bend*k*.6); }
+  { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*Math.max(1, Math.round(r0*8)), uv.getY(i)*h/1.1); }   // bark at its real size
   g.computeVertexNormals();
   return g;
 }
@@ -1536,7 +1556,7 @@ function isleOak(seed, leaf, lo = false) {
     const ao = clamp(.5 + .32*ny + (y - H)/(top - H)*.35 + Math.hypot(x, z)/R*.12, .35, 1.12), v = .92 + n3(x*.8 + seed, y*.8, z*.8)*.18;
     return [base[0]*ao*v, base[1]*ao*v, base[2]*ao*v*.95];
   });
-  const trunk = islePaint(isleMerge(wood), (x, y) => { const k = .75 + .3*vnoise(y*3, x*5 + seed); return [barkC[0]*k, barkC[1]*k, barkC[2]*k]; });
+  const trunk = islePaint(isleMergeUV(wood), (x, y) => { const k = .75 + .3*vnoise(y*3, x*5 + seed); return [barkC[0]*k, barkC[1]*k, barkC[2]*k]; });
   return { canopy, trunk, h: top };
 }
 // pine: tall trunk and 6-7 drooping, ragged tiers
@@ -1615,7 +1635,9 @@ function isleForest() {
   const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .8, metalness: 0, map: F.leaf, alphaTest: .5, alphaToCoverage: true, side: THREE.DoubleSide });
   const needleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: 0, map: F.needle, alphaTest: .5, alphaToCoverage: true, side: THREE.DoubleSide });
   const barkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  if (window.BOOM_TEX) { pbrApply(barkMat, 'bark_brown_02', { rep: 1 }); barkMat.color.setRGB(2.2, 2.1, 2); }   // (the trunks' own darker colours multiply in)
   const stoneMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92, metalness: 0 });
+  if (window.BOOM_TEX) pbrApply(stoneMat, 'rock_face', { rep: 2 });
   const kinds = [
     ['oak', isleOak(1, 0x4c7a2a), isleOak(1, 0x4c7a2a, true)], ['oak', isleOak(2, 0x5d8030), isleOak(2, 0x5d8030, true)], ['oak', isleOak(3, 0x3f6b2a), isleOak(3, 0x3f6b2a, true)],
     ['pine', islePine(1, 0x2f5a2c), islePine(1, 0x2f5a2c, true)], ['pine', islePine(2, 0x3a6331), islePine(2, 0x3a6331, true)], ['pine', islePine(3, 0x284f27), islePine(3, 0x284f27, true)],
@@ -1691,7 +1713,7 @@ function isleForest() {
   }
   rocks.forEach((list, k) => {
     const m = new THREE.InstancedMesh(rockG[k], stoneMat, list.length);
-    list.forEach(([x, z, s], i) => { o.position.set(x, isleH(x, z) - .1*s, z); o.rotation.set(0, rand(0, 6), 0); o.scale.setScalar(s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); const v = rand(.34, .5); m.setColorAt(i, col.setRGB(v*1.04, v, v*.9)); });
+    list.forEach(([x, z, s], i) => { o.position.set(x, isleH(x, z) - .1*s, z); o.rotation.set(0, rand(0, 6), 0); o.scale.setScalar(s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); const v = window.BOOM_TEX ? rand(1.6, 2.2) : rand(.34, .5); m.setColorAt(i, col.setRGB(v*1.04, v, v*.9)); });
     m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m);
   });
 }

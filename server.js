@@ -25,7 +25,7 @@ const log = msg => console.log(`[${new Date().toISOString().slice(11, 19)}] ${ms
 // =====================================================================
 // Web pages: only the game's own files, compressed and cached
 // =====================================================================
-const PUBLIC = { '/': 'index.html', '/index.html': 'index.html', '/shared.js': 'shared.js', '/soldier.js': 'soldier.js', '/island.js': 'island.js', '/br.js': 'br.js',
+const PUBLIC = { '/': 'index.html', '/index.html': 'index.html', '/shared.js': 'shared.js', '/soldier.js': 'soldier.js', '/island.js': 'island.js', '/textures-a.js': 'textures-a.js', '/textures-b.js': 'textures-b.js', '/br.js': 'br.js',
   // installing the game as an app: the manifest, the offline cache and the icons
   '/manifest.webmanifest': 'manifest.webmanifest', '/sw.js': 'sw.js' };
 for (const f of ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon-64.png']) PUBLIC['/icons/' + f] = 'icons/' + f;

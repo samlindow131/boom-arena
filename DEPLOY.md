@@ -9,7 +9,7 @@ These steps use **Render** (render.com), which has a free plan. You'll need a Gi
 1. Sign in at github.com and click **New repository**. Name it `boom-arena`. Leave it Public (or pick Private), then click **Create repository**.
 2. On the new repository's page, click **uploading an existing file**.
 3. Drag these in from the `boom-arena` folder:
-   `index.html`, `island.js`, `br.js`, `soldier.js`, `shared.js`, `game.js`, `server.js`, `maps.json`, `package.json`, `render.yaml`, `sw.js`, `manifest.webmanifest`, the whole `icons` folder, and the `operators` folder if you have one (your converted Mixamo characters; drag each folder itself in)
+   `index.html`, `textures-a.js`, `textures-b.js`, `island.js`, `br.js`, `soldier.js`, `shared.js`, `game.js`, `server.js`, `maps.json`, `package.json`, `render.yaml`, `sw.js`, `manifest.webmanifest`, the whole `icons` folder, and the `operators` folder if you have one (your converted Mixamo characters; drag each folder itself in)
 4. Click **Commit changes**.
 
 ## 2. Start it on Render

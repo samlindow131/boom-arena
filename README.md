@@ -58,3 +58,7 @@ Every key can be changed in Settings. Controllers work too.
 - `server.js` and `game.js` run online matches; the server decides every hit, so nobody can cheat by editing their copy.
 - `shared.js` holds the numbers both sides use (weapons, equipment, killstreaks).
 - `npm test` runs the protocol, rules and match-simulation tests.
+
+## Credits
+
+Photo-scanned textures (ground, rock, asphalt, brick, concrete, plaster, wood, roofing, bark) from [Poly Haven](https://polyhaven.com), CC0.

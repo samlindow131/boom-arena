@@ -362,7 +362,9 @@ function brChute(f) {
   }
   if (b.canopy) { b.canopy.visible = true; b.canopy.scale.setScalar(.2); }
   const d = f.pos.distanceTo(camera.position);
-  if (f.isPlayer || d < 60) { const v = f.isPlayer ? 1 : .5/(1 + d*.1); src(.5, 'bandpass', 380, 2.2*v, outNode(.6, 0, false), AC ? AC.currentTime : 0, .7); thud(140, .35, .5*v); }
+  // other people's parachutes: only close ones, and not a dozen at once when a crowd opens together
+  if (f.isPlayer || (d < 40 && now - (BR.chuteSndT || -9) > .35)) {
+    if (!f.isPlayer) BR.chuteSndT = now; const v = f.isPlayer ? 1 : .5/(1 + d*.1); src(.5, 'bandpass', 380, 2.2*v, outNode(.6, 0, false), AC ? AC.currentTime : 0, .7); thud(140, .35, .5*v); }
 }
 // steering in the air (you with the keys, bots toward where they want to land)
 function brAirMove(f, dt, ctl) {
@@ -476,7 +478,9 @@ function brCamera(dt) {
 function brLoops(on) {
   if (!AC) return;
   const mk2 = (freq, q, type) => {
-    const s = AC.createBufferSource(); s.buffer = noise(2); s.loop = true;
+    // a steady noise loop (the shared noise() buffers fade out, which made the loop pulse and click every 2 s)
+    if (!BR.loopBuf) { const n = AC.sampleRate*3, b = AC.createBuffer(1, n, AC.sampleRate), d = b.getChannelData(0); let lp = 0; for (let i = 0; i < n; i++) { lp += (Math.random()*2 - 1 - lp)*.5; d[i] = lp; } BR.loopBuf = b; }
+    const s = AC.createBufferSource(); s.buffer = BR.loopBuf; s.loop = true;
     const f = AC.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
     const g = AC.createGain(); g.gain.value = 0; s.connect(f); f.connect(g); g.connect(outNode(1, 0, false)); s.start(); return { s, f, g };
   };
@@ -1356,9 +1360,10 @@ function brTick(dt) {
   }
   if (BR.loopPlane && isFinite(camera.position.x + P.pos.x)) {
     const d = camera.position.distanceTo(P.pos), inPlane = player.br && player.br.st === 'plane';
-    BR.loopPlane.g.gain.value = BR.planeMesh.visible ? (inPlane ? .5 : .9/(1 + d*.03)) : 0;
+    const t = AC.currentTime;   // (eased, not set each frame: direct jumps crackle)
+    BR.loopPlane.g.gain.setTargetAtTime(BR.planeMesh.visible ? (inPlane ? .5 : .9/(1 + d*.03)) : 0, t, .08);
     const st = player.br && player.br.st, sp = st === 'fall' || st === 'chute' ? Math.hypot(player.br.vx, player.br.vy, player.br.vz) : 0;
-    if (isFinite(sp)) { BR.loopWind.g.gain.value = Math.min(.8, sp/40); BR.loopWind.f.frequency.value = 500 + sp*14; }
+    if (isFinite(sp)) { BR.loopWind.g.gain.setTargetAtTime(Math.min(.7, sp/45), t, .12); BR.loopWind.f.frequency.setTargetAtTime(500 + sp*12, t, .15); }
   }
   brGas(dt);
   brUpdateItems(dt); brUpdateCrates(dt); brUpdateDrops(dt);
