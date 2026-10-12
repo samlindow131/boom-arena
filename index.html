@@ -2949,6 +2949,13 @@ function skinMats(id) {
   // pattern size on the gun (texture repeats per metre): big camo shapes like real painted rifles
   const scale = { gold: 8, diamond: 7, darkmatter: 5, neon: 6, sakura: 5.5, tiger: 4 }[id] || 4.5;
   P.forEach(q => q.scale = scale);
+  // like a real painted rifle: the camo goes on the receiver, handguard and stock; grips, magazines and pads stay
+  // moulded polymer in a colour that goes with it (the precious and glowing finishes cover everything)
+  const furn = { woodland: 0x3f4632, multicam: 0x6e5d46, desert: 0x8c7659, arctic: 0xc3c7cc, digital: 0x4b4f54, tiger: 0x1e1f21, sakura: 0x2a1d22, neon: 0x121318 }[id];
+  if (furn !== undefined) {
+    const pc = skinCache._poly || (skinCache._poly = mk(256, 0, (g, s) => { g.fillStyle = '#b4b4b4'; g.fillRect(0, 0, s, s); specks(g, s, s, 12000, ['#c2c2c2', '#9c9c9c', '#acacac'], .9); }));
+    return skinCache[id] = { gun: camoMaterial(tex, P[0]), poly: camoMaterial(T(pc, 1, 1), { mat: { color: lin(furn), metalness: .06, roughness: .72 }, scale: 20 }), tex };
+  }
   return skinCache[id] = { gun: camoMaterial(tex, P[0]), poly: camoMaterial(tex, P[1]), tex };
 }
 function camoSwatch(id) {
@@ -3428,10 +3435,42 @@ function loadSoldier() {
 }
 // ---- Operators (the soldier bodies). Vanguard is built in; extra ones (realistic people from Mixamo) are listed in
 // operators/operators.json and load in the background. They all share the same idle / walk / run animations. ----
+// =====================================================================
+// The six field operators: VOLT, SERAPH, REAPER, NOVA, TIDE and GHOST. Each one is the Vanguard body (the same
+// skeleton, so every animation, the arm IK and the hitboxes work unchanged) with the sci-fi helmet taken off (the
+// skin shader drops anything weighted to the head bones) and its own head, headgear and kit put on: plate carriers,
+// pouches, packs, masks, hoods, ghillie. The kit is built once per soldier in the body's bind pose, measured off the
+// body itself, and merged into a few skinned meshes bound to the skeleton (about three more draws per soldier).
+// Its main material takes the camo skins exactly like the body; each operator has four skins of its own.
+// =====================================================================
+const OP_KITS = {
+  volt: { name: 'VOLT', note: 'Urban assault', acc: '#f2c12e' },
+  seraph: { name: 'SERAPH', note: 'Recon', acc: '#c9b48a' },
+  reaper: { name: 'REAPER', note: 'Heavy support', acc: '#e8e2d0' },
+  nova: { name: 'NOVA', note: 'Precision marksman', acc: '#36d1c4' },
+  tide: { name: 'TIDE', note: 'Field specialist', acc: '#ff8a2a' },
+  ghost: { name: 'GHOST', note: 'Woodland recon', acc: '#3a4228' },
+};
+const OP_KIT_SKINS = [
+  ['volt', 'VOLT', 0, { m: 2, c: ['#5d636b', '#1e2126', '#8b939c'] }, '#f2c12e'], ['volt_dust', 'VOLT · Dust', 10, { m: 1, c: ['#b89a6c', '#7f6444', '#d8c39a'], s: .9 }, '#e0a830'],
+  ['volt_night', 'VOLT · Night', 25, { m: 2, c: ['#202329', '#08090b', '#2a2e35'] }, '#3a7bff'], ['volt_surge', 'VOLT · Surge', 45, { m: 7, c: ['#14171e', '#2fd3ff', '#000000'], s: 1 }, '#2fd3ff'],
+  ['seraph', 'SERAPH', 0, { m: 2, c: ['#8f8a7e', '#4b4840', '#b9b3a4'] }, '#c9b48a'], ['seraph_dune', 'SERAPH · Dune', 10, { m: 1, c: ['#c8ad7f', '#957852', '#e6d4ae'], s: .8 }, '#d8c09a'],
+  ['seraph_owl', 'SERAPH · Night Owl', 25, { m: 2, c: ['#252b38', '#0d1016', '#323a4a'] }, '#4a5468'], ['seraph_halo', 'SERAPH · Halo', 45, { m: 5, c: ['#e8e2d4', '#9a907c', '#ffffff'] }, '#f2c14e'],
+  ['reaper', 'REAPER', 0, { m: 2, c: ['#3a3d35', '#151612', '#4f5347'] }, '#e8e2d0'], ['reaper_bone', 'REAPER · Bone', 10, { m: 1, c: ['#b7a58a', '#6d5e48', '#ddd0b8'], s: 1.1 }, '#f1ebdc'],
+  ['reaper_shadow', 'REAPER · Shadow', 25, { m: 2, c: ['#16171a', '#050506', '#1f2024'] }, '#8a1d1d'], ['reaper_wraith', 'REAPER · Wraith', 45, { m: 9, c: ['#120d0d', '#ff3b1a', '#000000'], s: 1 }, '#ff5a2a'],
+  ['nova', 'NOVA', 0, { m: 2, c: ['#2c3a52', '#121926', '#3d5070'] }, '#36d1c4'], ['nova_mirage', 'NOVA · Mirage', 10, { m: 1, c: ['#c2a273', '#8a6b45', '#e2cc9e'], s: .9 }, '#36d1c4'],
+  ['nova_eclipse', 'NOVA · Eclipse', 25, { m: 2, c: ['#16181e', '#060708', '#22252d'] }, '#ff6a3a'], ['nova_super', 'NOVA · Supernova', 45, { m: 12, c: ['#0b1236', '#2a0f4a', '#6a8cff'], s: 1 }, '#b48cff'],
+  ['tide', 'TIDE', 0, { m: 1, c: ['#7d6c4e', '#4a4030', '#a39274'], s: 1 }, '#ff8a2a'], ['tide_outback', 'TIDE · Outback', 10, { m: 1, c: ['#b58f5e', '#7a5a36', '#d9bd8f'], s: 1 }, '#ff8a2a'],
+  ['tide_deep', 'TIDE · Deep Water', 25, { m: 2, c: ['#1b2a3a', '#0a1018', '#26394d'] }, '#2fd3ff'], ['tide_riptide', 'TIDE · Riptide', 45, { m: 8, c: ['#0a4a8a', '#2fd3ff', '#000000'], s: 1 }, '#2fd3ff'],
+  ['ghost_wood', 'GHOST', 0, { m: 1, c: ['#4f5d30', '#2a2a1c', '#7c6a44'], s: 1 }, '#3a4228'], ['ghost_sahara', 'GHOST · Sahara', 10, { m: 1, c: ['#c4a97c', '#8c7350', '#e2d1ad'], s: 1 }, '#a08a64'],
+  ['ghost_phantom', 'GHOST · Phantom', 25, { m: 4, c: ['#1d2230', '#0b0e15', '#2f3647'], s: 1 }, '#3a4258'], ['ghost_spectre', 'GHOST · Spectre', 45, { m: 10, c: ['#0a1018', '#29f0ff', '#000000'], s: 1 }, '#29f0ff'],
+];
+const OP_KIT_DEFAULT = { volt: 'volt', seraph: 'seraph', reaper: 'reaper', nova: 'nova', tide: 'tide', ghost: 'ghost_wood' };
 const OPS = { vanguard: { id: 'vanguard', name: 'Vanguard', note: 'Armored assault trooper', scene: null, clips: [], scale: 1, flip: 0, keepSkin: false } };
 const OP_IDS = ['vanguard'];
+for (const [id, k] of Object.entries(OP_KITS)) { OPS[id] = { id, name: k.name, note: k.note, scene: null, clips: [], scale: 1, flip: 0, keepSkin: false, kit: id }; OP_IDS.push(id); }
 let myOp = store.get('boomOp', 'vanguard'), mySkin = store.get('boomOpSkin', 'standard');
-function registerVanguard() { if (SOLDIER) Object.assign(OPS.vanguard, { scene: SOLDIER, clips: SOLDIER_CLIPS, scale: SOLDIER_SCALE, flip: SOLDIER_FLIP }); }
+function registerVanguard() { if (SOLDIER) for (const id of ['vanguard', ...Object.keys(OP_KITS)]) Object.assign(OPS[id], { scene: SOLDIER, clips: SOLDIER_CLIPS, scale: SOLDIER_SCALE, flip: SOLDIER_FLIP }); }
 async function loadOperators() {
   if (!location.protocol.startsWith('http')) return;
   let list = null;
@@ -3527,6 +3566,8 @@ function setOperator(b, opId, skinId) {
       });
       o.material = Array.isArray(o.material) ? mats : mats[0];
     });
+    b.kitAcc = null;
+    if (op.kit) opKitBuild(b, model, op.kit);
     b.group.add(model); b.model = model; b.opId = op.id; b.opScale = op.scale; b.castNow = undefined; b.pose = undefined;
     b.mixer = new THREE.AnimationMixer(model); b.acts = {};
     for (const n of ['Idle', 'Walk', 'Run']) {
@@ -3539,7 +3580,10 @@ function setOperator(b, opId, skinId) {
     b.spine = ['mixamorigSpine', 'mixamorigSpine1', 'mixamorigSpine2'].map(n => model.getObjectByName(n)).filter(Boolean);
     b.headBone = model.getObjectByName('mixamorigHead'); b.headTop = model.getObjectByName('mixamorigHeadTop_End'); b.hipBone = model.getObjectByName('mixamorigHips');
   }
-  applyOpSkin(b, skinId || b.skinId || 'standard');
+  // a skin made for another operator (or the plain issue on a field operator) falls back to this operator's own
+  let sid = skinId || b.skinId || 'standard'; const so = OP_SKIN[sid];
+  if (!so || (so.op && so.op !== op.id) || (sid === 'standard' && op.kit)) sid = op.kit ? OP_KIT_DEFAULT[op.kit] : 'standard';
+  applyOpSkin(b, sid);
 }
 function nameTag(f) {
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 80;
@@ -3598,6 +3642,233 @@ function makeArm(model, side) {
   if (!up || !fore || !hand) return null;
   return { up, fore, hand, a1: fore.position.clone().normalize(), a2: hand.position.clone().normalize(),
     l1: up.getWorldPosition(V()).distanceTo(fore.getWorldPosition(V())), l2: fore.getWorldPosition(V()).distanceTo(hand.getWorldPosition(V())) };
+}
+
+// ---- shapes, in metres, in a frame where x = the soldier's left, y = up, z = forward ----
+const KG = {
+  box: (w, h, d, p = [0, 0, 0], r = [0, 0, 0]) => KG.put(new THREE.BoxGeometry(w, h, d), p, r),
+  cyl: (r0, r1, h, p = [0, 0, 0], r = [0, 0, 0], seg = 12) => KG.put(new THREE.CylinderGeometry(r0, r1, h, seg), p, r),
+  ell: (rx, ry, rz, p = [0, 0, 0], r = [0, 0, 0], seg = 14, t0 = 0, tl = Math.PI) => KG.put(new THREE.SphereGeometry(1, seg, Math.max(4, Math.round(seg*.7)), 0, Math.PI*2, t0, tl).scale(rx, ry, rz), p, r),
+  tor: (R, t, p = [0, 0, 0], r = [0, 0, 0], arc = Math.PI*2, seg = 16) => KG.put(new THREE.TorusGeometry(R, t, 6, seg, arc), p, r),
+  strip: (w, h, p, r) => { const g = new THREE.PlaneGeometry(w, h); g.translate(0, -h/2, 0); return KG.put(g, p, r); },
+  put: (g, p, r) => { g.rotateX(r[0]); g.rotateY(r[1]); g.rotateZ(r[2]); g.translate(p[0], p[1], p[2]); return g; },
+};
+// what each operator wears. A = the bone's position plus measured body extents (in metres, relative to the bone):
+// e[bone] = { l0, l1, u0, u1, f0, f1 } (left/right, up/down, front/back). P(name, geo, mat) adds a piece: mat 0 = the
+// kit (takes the skin), 1 = dark straps and fabric, 2 = lenses and metal, 3 = the operator's accent colour
+function opKitParts(id, e, P) {
+  const ch = e.Spine2, hp = e.Hips, hd = e.Head, rnd = (a, b) => a + Math.random()*(b - a);
+  const cw = Math.max(.3, (ch.l1 - ch.l0)*.92), cF = ch.f1, cB = ch.f0, cU = ch.u0 + .07;   // (the chest region runs up to the neck: plates sit on its lower part)
+  // a human head under whatever they wear on it: skull and jaw in a dark balaclava, the neck below
+  const C = [0, .1, .03];   // (head pieces are laid out from the base of the skull; see opKitGeometry)
+  const head = (mat = 1, face = true) => {
+    P('Head', KG.ell(.083, .112, .1, C), mat); P('Head', KG.ell(.07, .05, .075, [0, C[1] - .065, C[2] + .025]), mat); P('Neck', KG.cyl(.058, .064, .12, [0, 0, 0]), mat);
+    if (!face) return;
+    P('Head', KG.ell(.068, .027, .03, [0, C[1] + .015, C[2] + .07]), 4);                                          // the eye opening: skin,
+    for (const s of [-1, 1]) { P('Head', KG.ell(.009, .0065, .005, [s*.027, C[1] + .016, C[2] + .098]), 2); P('Head', KG.box(.03, .007, .01, [s*.028, C[1] + .034, C[2] + .095], [0, 0, s*.12]), 1); }   // eyes and brows
+    P('Head', KG.ell(.014, .02, .016, [0, C[1] - .012, C[2] + .1]), mat);                                        // the nose under the fabric
+  };
+  const kneePads = mat => { for (const s of ['Left', 'Right']) { const k = e[s + 'Leg']; P(s + 'Leg', KG.box(.11, .13, .045, [0, k.u1 - .07, k.f1 + .01], [-.15, 0, 0]), mat); } };
+  const plate = (w, h, d, mat = 0) => { P('Spine2', KG.box(w, h, d, [0, cU - .02, cF + d/2 - .01]), mat); P('Spine2', KG.box(w, h*.95, d, [0, cU - .02, cB - d/2 + .01]), mat); };
+  const straps = () => { for (const s of [-1, 1]) P('Spine2', KG.box(.06, .035, cF - cB + .02, [s*cw*.3, cU + .17, (cF + cB)/2]), 1); };
+  const cummer = (mat = 0) => { for (const s of [-1, 1]) P('Spine2', KG.box(.045, .2, (cF - cB)*.8, [s*(cw/2 + .01), cU - .08, (cF + cB)/2]), mat); };
+  const pouches = (n, y, w = .068, h = .12, mat = 0) => { for (let i = 0; i < n; i++) P('Spine2', KG.box(w, h, .05, [(i - (n - 1)/2)*(w + .012), y, cF + .055]), mat); };
+  const belt = (mat = 1) => { const w = (hp.l1 - hp.l0)*.8, d = (hp.f1 - hp.f0)*.82, y = hp.u1 - .1;
+    P('Hips', KG.box(w, .045, .02, [0, y, d/2]), mat); P('Hips', KG.box(w, .045, .02, [0, y, -d/2]), mat);
+    for (const s of [-1, 1]) P('Hips', KG.box(.02, .045, d, [s*(w/2), y, 0]), mat);
+    for (const s of [-1, 1]) P('Hips', KG.box(.07, .09, .045, [s*w*.36, y - .05, d/2 + .02]), 0); return y; };
+  const thighBag = (side, mat = 0) => { const t = e[side + 'UpLeg']; P(side + 'UpLeg', KG.box(.05, .17, .11, [side === 'Left' ? t.l1 + .02 : t.l0 - .02, -.02, 0]), mat); };
+  const pack = (w, h, d, mat = 0) => { P('Spine2', KG.box(w, h, d, [0, cU - .06, cB - d/2 - .03]), mat); P('Spine2', KG.box(w*.9, .05, d*.9, [0, cU - .06 + h/2 + .02, cB - d/2 - .03]), 1); };
+  switch (id) {
+    case 'volt': {
+      head(1);
+      P('Head', KG.ell(.122, .118, .13, [0, .125, .025], [0, 0, 0], 18, 0, Math.PI*.52), 0);                       // ballistic helmet
+      P('Head', KG.tor(.118, .012, [0, .115, .025], [Math.PI/2, 0, 0], Math.PI*2, 20), 1);
+      for (const s of [-1, 1]) { P('Head', KG.cyl(.042, .042, .032, [s*.1, .085, .02], [0, 0, Math.PI/2]), 1); P('Head', KG.box(.012, .028, .1, [s*.124, .13, .02]), 1); }
+      P('Head', KG.box(.045, .03, .03, [0, .2, .135]), 1);                                                        // NVG mount, tubes flipped up
+      for (const s of [-1, 1]) P('Head', KG.cyl(.017, .017, .065, [s*.024, .225, .13], [-1.1, 0, 0]), 2);
+      P('Head', KG.box(.11, .028, .018, [0, .1, .108]), 2);                                                       // eye protection
+      plate(cw*.88, .3, .055); straps(); cummer();
+      pouches(3, cU - .1); P('Spine2', KG.box(.06, .1, .045, [cw*.3, cU + .08, cF + .05]), 1);                   // radio
+      P('Spine2', KG.cyl(.006, .006, .25, [cw*.3, cU + .24, cF + .03]), 1);
+      P('Spine2', KG.box(.08, .05, .012, [-cw*.25, cU + .06, cF + .06]), 3);                                     // ID patch
+      belt(); thighBag('Right'); kneePads(0);
+      P('Spine2', KG.box(.2, .26, .07, [0, cU - .06, cB - .07]), 0);                                              // hydration pack
+      break;
+    }
+    case 'seraph': {
+      head(1);
+      P('Head', KG.cyl(.105, .11, .085, [0, .17, .015]), 0); P('Head', KG.ell(.105, .035, .105, [0, .212, .015], [0, 0, 0], 14, 0, Math.PI/2), 0);   // boonie hat
+      P('Head', KG.cyl(.21, .2, .012, [0, .135, .015], [.06, 0, 0], 20), 0);
+      P('Neck', KG.tor(.085, .038, [0, .02, .015], [Math.PI/2, 0, 0]), 3);                                         // shemagh round the neck, up over the face
+      P('Head', KG.ell(.088, .055, .07, [0, .04, .055], [.2, 0, 0], 14, Math.PI*.35, Math.PI*.65), 3);
+      P('Head', KG.box(.125, .026, .012, [0, .105, .11]), 2);                                                     // sunglasses
+      plate(cw*.7, .22, .035); straps();
+      pouches(4, cU + .02, .058, .1); P('Spine2', KG.box(.14, .08, .06, [0, cU - .12, cF + .06]), 1);             // binoculars
+      pack(.22, .3, .1); P('Spine2', KG.cyl(.005, .007, .8, [.07, cU + .48, cB - .1], [-.12, 0, .1]), 1);          // long-range radio and its whip antenna
+      belt(); P('Hips', KG.cyl(.035, .035, .14, [-(hp.l1 - hp.l0)/2 - .03, hp.u1 - .1, hp.f0 + .03]), 1);           // canteen
+      thighBag('Left', 0);
+      break;
+    }
+    case 'reaper': {
+      head(1, false);
+      P('Head', KG.ell(.13, .12, .14, [0, .13, .02], [0, 0, 0], 18, 0, Math.PI*.5), 0);                            // heavy helmet with a brow plate
+      P('Head', KG.box(.17, .035, .05, [0, .138, .115], [.2, 0, 0]), 0);
+      P('Head', KG.tor(.075, .014, [0, .118, .03], [Math.PI/2, 0, 0], Math.PI*2, 20), 1);                        // goggles with dark lenses
+      for (const s of [-1, 1]) P('Head', KG.cyl(.026, .026, .018, [s*.033, .118, .1], [Math.PI/2, 0, 0], 16), 2);
+      P('Head', KG.ell(.07, .045, .05, [0, .055, .095], [-.15, 0, 0], 14, Math.PI*.35, Math.PI*.6), 3);          // skull print on the face
+      for (let k = -2; k <= 2; k++) P('Head', KG.box(.008, .02, .006, [k*.014, .05, .142 - Math.abs(k)*.006], [0, k*.25, 0]), 1);   // its teeth
+      plate(cw*1.0, .36, .085); cummer(0); straps();
+      P('Neck', KG.tor(.13, .045, [0, -.01, .0], [Math.PI/2, 0, 0], Math.PI*2, 18), 0);                            // armored collar
+      for (const s of ['Left', 'Right']) { const a = e[s + 'Arm'], x = s === 'Left' ? a.l0 + .07 : a.l1 - .07, sg = s === 'Left' ? 1 : -1; P(s + 'Arm', KG.ell(.1, .1, .115, [x, a.u1 - .07, 0], [0, 0, -sg*.5], 16, 0, Math.PI*.55), 0); P(s + 'Arm', KG.box(.09, .02, .2, [x + sg*.05, a.u1 - .1, 0], [0, 0, -sg*.6]), 1); }
+      pack(.36, .42, .2, 0);                                                                                       // ammo pack and the belt feeding round to the gun
+      for (let k = 0; k < 7; k++) { const t = k/6; P('Spine2', KG.box(.03, .045, .02, [-.12 - t*.12, cU - .28 + t*.05, cB - .05 + t*(cF - cB + .06)], [0, t*1.3, 0]), 3); }
+      for (const s of ['Left', 'Right']) { const t = e[s + 'UpLeg']; P(s + 'UpLeg', KG.box(.14, .2, .035, [0, 0, t.f1 + .015]), 0); const l = e[s + 'Leg']; P(s + 'Leg', KG.box(.11, .24, .035, [0, -.04, l.f1 + .015]), 0); }
+      kneePads(1); belt(0);
+      break;
+    }
+    case 'nova': {
+      head(1);
+      P('Head', KG.ell(.098, .075, .108, [0, .155, .02], [0, 0, 0], 16, 0, Math.PI/2), 0);                        // cap and bill
+      P('Head', KG.box(.15, .012, .1, [0, .158, .13], [-.12, 0, 0]), 0);
+      P('Head', KG.cyl(.04, .04, .03, [.098, .095, .015], [0, 0, Math.PI/2]), 1); P('Head', KG.cyl(.005, .005, .11, [.07, .04, .08], [1.2, .5, 0]), 1);   // headset and mic
+      P('Head', KG.box(.12, .024, .012, [0, .105, .108]), 2);                                                      // shooting glasses
+      P('Head', KG.ell(.072, .05, .055, [0, .035, .07], [0, 0, 0], 14, Math.PI*.3, Math.PI*.7), 0);                // half mask
+      plate(cw*.74, .26, .04); straps(); pouches(2, cU - .09, .075, .13);
+      P('Spine2', KG.box(.11, 1.0, .14, [-.04, cU - .05, cB - .1], [0, 0, .42]), 1);                               // rifle case on the back
+      P('Spine2', KG.box(.115, .05, .145, [-.04 - Math.sin(.42)*.47, cU - .05 + Math.cos(.42)*.47, cB - .1], [0, 0, .42]), 3);
+      belt(); thighBag('Left', 1); kneePads(0);
+      break;
+    }
+    case 'tide': {
+      head(1);
+      P('Head', KG.ell(.1, .1, .108, [0, .135, .025], [0, 0, 0], 16, 0, Math.PI/2), 0); P('Head', KG.cyl(.104, .104, .04, [0, .14, .025]), 0);   // beanie
+      P('Head', KG.tor(.1, .012, [0, .18, .03], [Math.PI/2, 0, 0]), 1);                                            // goggles pushed up on it
+      for (const s of [-1, 1]) P('Head', KG.cyl(.028, .028, .02, [s*.035, .19, .118], [Math.PI/2, 0, 0]), 2);
+      P('Head', KG.box(.06, .065, .05, [0, .045, .118]), 1);                                                       // respirator and filters
+      for (const s of [-1, 1]) P('Head', KG.cyl(.027, .027, .045, [s*.055, .035, .11], [Math.PI/2, s*.6, 0]), 2);
+      plate(cw*.86, .28, .045); straps(); cummer();
+      pouches(3, cU - .1, .066, .11); pouches(3, cU + .04, .066, .08, 1);
+      pack(.3, .42, .2, 0); P('Spine2', KG.cyl(.07, .07, .34, [0, cU + .24, cB - .13], [0, 0, Math.PI/2]), 3);      // big pack, bedroll on top
+      { const a = e.LeftForeArm; P('LeftForeArm', KG.box(.085, .028, .065, [a.l1 - .07, a.u1 + .01, 0]), 1); P('LeftForeArm', KG.box(.065, .006, .045, [a.l1 - .07, a.u1 + .026, 0]), 3); }   // wrist computer
+      belt(); thighBag('Right', 0); kneePads(1);
+      break;
+    }
+    case 'ghost': {
+      head(1);
+      P('Head', KG.ell(.122, .13, .13, [0, .095, .0], [0, 0, 0], 18, 0, Math.PI*.62), 0);                          // ghillie hood
+      for (let k = 0; k < 46; k++) {                                                                               // strips hanging off the hood
+        const a = rnd(0, Math.PI*2), y = rnd(.04, .2), r = .125 - (y - .04)*.25;
+        if (Math.cos(a) > .55 && y < .14) continue;                                                                // keep the face clear
+        P('Head', KG.strip(rnd(.022, .035), rnd(.1, .2), [Math.sin(a)*r, y, Math.cos(a)*r], [rnd(-.5, .2), a, rnd(-.3, .3)]), 0);
+      }
+      for (let k = 0; k < 70; k++) {                                                                               // and the cape over the shoulders and back
+        const a = rnd(-2.6, 2.6) + Math.PI, s = Math.sin(a), c = Math.cos(a), w = cw*.6, d = (cF - cB)*.6;
+        P('Spine2', KG.strip(rnd(.025, .04), rnd(.18, .32), [s*w, ch.u1 + rnd(-.04, .03), (cF + cB)/2 + c*d], [rnd(-.4, .2), a, rnd(-.25, .25)]), 0);
+      }
+      P('Head', KG.ell(.075, .055, .07, [0, .035, .06], [0, 0, 0], 14, Math.PI*.3, Math.PI*.7), 1);
+      plate(cw*.7, .24, .035, 1); straps(); pouches(2, cU - .08, .07, .12);
+      P('Spine2', KG.box(.03, .13, .02, [cw*.25, cU + .05, cF + .05], [0, 0, .5]), 1); P('Spine2', KG.box(.02, .12, .006, [cw*.25 + .05, cU + .12, cF + .05], [0, 0, .5]), 2);   // knife
+      belt(); thighBag('Right', 0);
+      break;
+    }
+  }
+}
+// The body measured from its own vertices (its bind data can sit in another space): which vertices each bone moves
+// most, where they are and how far they reach, in the soldier's frame (left, up, forward) and in metres.
+function opBodyMeasure(body) {
+  const g = body.geometry, pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bones = body.skeleton.bones;
+  const dom = new Int16Array(pos.count), sum = {}, v = V();
+  for (let i = 0; i < pos.count; i++) {
+    const ws = [sw.getX(i), sw.getY(i), sw.getZ(i), sw.getW(i)], is = [si.getX(i), si.getY(i), si.getZ(i), si.getW(i)];
+    let best = -1, bw = -1; for (let k = 0; k < 4; k++) if (ws[k] > bw) { bw = ws[k]; best = is[k]; }
+    dom[i] = bones[best] ? best : -1; if (dom[i] < 0) continue;
+    const n = bones[best].name.replace('mixamorig', ''); v.fromBufferAttribute(pos, i);
+    const s = sum[n] || (sum[n] = { c: V(), n: 0 }); s.c.add(v); s.n++;
+  }
+  const cen = n => sum[n] ? sum[n].c.clone().divideScalar(sum[n].n) : null;
+  const feet = cen('LeftFoot').add(cen('RightFoot')).multiplyScalar(.5);
+  const U = cen('Head').sub(feet).normalize();
+  const L = (cen('LeftHand') || cen('LeftForeArm')).sub(cen('RightHand') || cen('RightForeArm')); L.addScaledVector(U, -L.dot(U)).normalize();
+  const F = V().crossVectors(L, U).normalize();
+  const toe = cen('LeftToeBase') && cen('LeftFoot') ? cen('LeftToeBase').sub(cen('LeftFoot')) : null;
+  if (toe && toe.dot(F) < 0) F.negate();
+  // height of the body along "up", to get metres
+  let lo = Infinity, hi = -Infinity; for (let i = 0; i < pos.count; i++) { const h = v.fromBufferAttribute(pos, i).dot(U); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+  const u = (hi - lo)/1.8;
+  // each bone's region: a box in the frame, centred on its middle
+  const box = {};
+  for (let i = 0; i < pos.count; i++) {
+    if (dom[i] < 0) continue; const n = bones[dom[i]].name.replace('mixamorig', ''); v.fromBufferAttribute(pos, i);
+    const l = v.dot(L)/u, up = v.dot(U)/u, f = v.dot(F)/u, x = box[n] || (box[n] = { l0: l, l1: l, u0: up, u1: up, f0: f, f1: f });
+    x.l0 = Math.min(x.l0, l); x.l1 = Math.max(x.l1, l); x.u0 = Math.min(x.u0, up); x.u1 = Math.max(x.u1, up); x.f0 = Math.min(x.f0, f); x.f1 = Math.max(x.f1, f);
+  }
+  const ext = {}, origin = {};
+  for (const [n, x] of Object.entries(box)) {
+    const cl = (x.l0 + x.l1)/2, cu = (x.u0 + x.u1)/2, cf = (x.f0 + x.f1)/2;
+    origin[n] = V().addScaledVector(L, cl*u).addScaledVector(U, cu*u).addScaledVector(F, cf*u);
+    ext[n] = { l0: x.l0 - cl, l1: x.l1 - cl, u0: x.u0 - cu, u1: x.u1 - cu, f0: x.f0 - cf, f1: x.f1 - cf };
+  }
+  return { L, U, F, u, ext, origin };
+}
+// cached per operator: the merged kit geometries (shared by every soldier wearing it) and the head bones it replaces
+const OP_KIT_GEO = {};
+function opKitGeometry(id, body) {
+  if (OP_KIT_GEO[id]) return OP_KIT_GEO[id];
+  const sk = body.skeleton, M = OP_KIT_GEO.measure || (OP_KIT_GEO.measure = opBodyMeasure(body));
+  const empty = { l0: -.1, l1: .1, u0: -.1, u1: .1, f0: -.1, f1: .1 }, E = new Proxy(M.ext, { get: (t, k) => t[k] || empty });
+  const parts = [[], [], [], [], []], basis = new THREE.Matrix4().makeBasis(M.L.clone().multiplyScalar(M.u), M.U.clone().multiplyScalar(M.u), M.F.clone().multiplyScalar(M.u));
+  const r0 = Math.random; let seed = hashStr(id) || 1; Math.random = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; };
+  try {
+    opKitParts(id, E, (boneName, geo, mat) => {
+      const bi = sk.bones.findIndex(b => b.name === 'mixamorig' + boneName), o = M.origin[boneName]; if (bi < 0 || !o) return;
+      if (boneName === 'Head') geo.translate(0, -.11, -.02);   // head pieces are laid out from the base of the skull, the region's middle is higher
+      geo.applyMatrix4(basis.clone().setPosition(o));
+      const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count, tone = .78 + Math.random()*.3;
+      if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n*2), 2));
+      g.setAttribute('skinIndex', new THREE.Float32BufferAttribute(new Float32Array(n*4).map((v, i) => i % 4 === 0 ? bi : 0), 4));
+      g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(n*4).map((v, i) => i % 4 === 0 ? 1 : 0), 4));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(n*3).fill(tone), 3));
+      parts[mat].push(g);
+    });
+  } finally { Math.random = r0; }
+  const merge = list => {
+    if (!list.length) return null;
+    const out = new THREE.BufferGeometry();
+    for (const [k, sz] of [['position', 3], ['normal', 3], ['uv', 2], ['skinIndex', 4], ['skinWeight', 4], ['color', 3]]) {
+      let n = 0; for (const g of list) n += g.attributes.position.count;
+      const arr = new Float32Array(n*sz); let o = 0;
+      for (const g of list) { const a = g.attributes[k]; if (a) arr.set(a.array, o); o += g.attributes.position.count*sz; }
+      out.setAttribute(k, new THREE.BufferAttribute(arr, sz));
+    }
+    out.computeBoundingSphere(); return out;
+  };
+  const hide = ['Head', 'HeadTop_End'].map(n => sk.bones.findIndex(b => b.name === 'mixamorig' + n));
+  return (OP_KIT_GEO[id] = { geos: parts.map(merge), hide });
+}
+const OP_KIT_MAT = {};
+function opKitBuild(b, model, id) {
+  let body = null, visor = null;
+  model.traverse(o => { if (!o.isSkinnedMesh) return; if (/visor/i.test(o.name)) visor = o; else if (!body || o.geometry.attributes.position.count > body.geometry.attributes.position.count) body = o; });
+  if (!body || !body.geometry.attributes.skinIndex) return;
+  if (visor) visor.visible = false;
+  const kit = opKitGeometry(id, body);
+  for (const m of b.bodyMats) if (m.userData.opU) m.userData.opU.opHide.value.set(kit.hide[0], kit.hide[1]);
+  b.kitMeshes = []; b.kitAcc = null;
+  kit.geos.forEach((geo, mi) => {
+    if (!geo) return;
+    let mat;
+    // (three r128: skinned meshes need materials with skinning on)
+    if (mi === 0) { mat = new THREE.MeshStandardMaterial({ color: 0xb4b4b4, roughness: .82, metalness: .05, vertexColors: true, side: THREE.DoubleSide, skinning: true }); opMaterial(mat, b.opScaleBase, false); b.bodyMats.push(mat); }
+    else if (mi === 1) mat = OP_KIT_MAT.dark || (OP_KIT_MAT.dark = new THREE.MeshStandardMaterial({ color: lin(0x26292d), roughness: .92, metalness: 0, vertexColors: true, skinning: true }));
+    else if (mi === 2) { mat = new THREE.MeshStandardMaterial({ color: lin(0x0c0e12), roughness: .12, metalness: .8, emissive: new THREE.Color(), skinning: true }); b.visorMats.push(mat); }
+    else if (mi === 3) { mat = new THREE.MeshStandardMaterial({ color: lin(OP_KITS[id].acc), roughness: .7, metalness: .1, vertexColors: true, skinning: true }); b.kitAcc = mat; }
+    else mat = OP_KIT_MAT.skin || (OP_KIT_MAT.skin = new THREE.MeshStandardMaterial({ color: lin(0xb07a5c), roughness: .6, metalness: 0, vertexColors: true, skinning: true }));
+    const m = new THREE.SkinnedMesh(geo, mat);
+    m.position.copy(body.position); m.quaternion.copy(body.quaternion); m.scale.copy(body.scale);
+    m.bind(body.skeleton, body.bindMatrix); m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+    body.parent.add(m); b.kitMeshes.push(m);
+  });
 }
 
 const fighters = [];
@@ -4706,6 +4977,7 @@ const OP_SKINS = [
   { id: 'demolition', name: 'Demolition', stat: 'explosive', n: 250, look: { m: 3, c: ['#e8b018', '#141414', '#e8b018'], s: 2.2 } },
   { id: 'champion', name: 'Champion', stat: 'wins', n: 100, look: { m: 5, c: ['#f6f2e8', '#c9a227', '#ffffff'] } },
 ];
+for (const [id, name, lv, look, acc] of OP_KIT_SKINS) OP_SKINS.push({ id, name, lv, look, acc, op: id.split('_')[0] });
 const OP_SKIN = Object.fromEntries(OP_SKINS.map(s => [s.id, s]));
 const STAT_TEXT = { heads: 'headshot kills', explosive: 'explosive kills', wins: 'match wins' };
 const skinTier = sk => sk.mst ? 'master' : sk.p ? 'prestige' : sk.stat ? 'challenge' : !sk.lv ? 'common' : sk.lv <= 15 ? 'common' : sk.lv <= 35 ? 'rare' : 'epic';
@@ -4749,8 +5021,14 @@ function skinSwatch(sk) {
 const OP_TIME = { value: 0 };
 function opPatch(sh) {
   Object.assign(sh.uniforms, this.userData.opU, { opTime: OP_TIME });
-  sh.vertexShader = 'varying vec3 vOpP;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vOpP = position;');
-  sh.fragmentShader = `uniform float opMode, opScale, opKeep, opTime, opRim; uniform vec3 opC1, opC2, opC3; varying vec3 vOpP;
+  sh.vertexShader = 'uniform vec2 opHide; varying vec3 vOpP; varying float vOpHide;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+  vOpP = position;
+  #ifdef USE_SKINNING
+    vOpHide = dot(vec4(equal(skinIndex, vec4(opHide.x))), skinWeight) + dot(vec4(equal(skinIndex, vec4(opHide.y))), skinWeight);
+  #else
+    vOpHide = 0.;
+  #endif`);
+  sh.fragmentShader = `uniform float opMode, opScale, opKeep, opTime, opRim; uniform vec3 opC1, opC2, opC3; varying vec3 vOpP; varying float vOpHide;
 float opH(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7)))*43758.5453); }
 float opN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3. - 2.*f);
   return mix(mix(mix(opH(i), opH(i + vec3(1., 0., 0.)), f.x), mix(opH(i + vec3(0., 1., 0.)), opH(i + vec3(1., 1., 0.)), f.x), f.y),
@@ -4758,6 +5036,7 @@ float opN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3. - 2.*f);
 float opF(vec3 p){ return opN(p)*.55 + opN(p*2.1 + 3.1)*.3 + opN(p*4.3 + 7.7)*.15; }
 vec3 opHue(float h){ return clamp(abs(mod(h*6. + vec3(0., 4., 2.), 6.) - 3.) - 1., 0., 1.); }
 ` + sh.fragmentShader
+    .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  if (vOpHide > .45) discard;   // a field operator wears their own head')
     .replace('#include <map_fragment>', `#include <map_fragment>
   float opCloth = 0.; vec3 opEmit = vec3(0.); float opMet = -1., opRgh = -1.;
   if (opMode > .5) {
@@ -4795,7 +5074,7 @@ vec3 opHue(float h){ return clamp(abs(mod(h*6. + vec3(0., 4., 2.), 6.) - 3.) - 1
 }
 // give a soldier material the skin shader (once, before it's first drawn)
 function opMaterial(mat, scale, keepSkin, rim) {
-  mat.userData.opU = { opMode: { value: 0 }, opScale: { value: scale }, opKeep: { value: keepSkin ? 1 : 0 }, opRim: { value: rim === undefined ? .16 : rim },
+  mat.userData.opU = { opMode: { value: 0 }, opScale: { value: scale }, opKeep: { value: keepSkin ? 1 : 0 }, opRim: { value: rim === undefined ? .16 : rim }, opHide: { value: new THREE.Vector2(-1, -1) },
     opC1: { value: new THREE.Color() }, opC2: { value: new THREE.Color() }, opC3: { value: new THREE.Color() } };
   mat.onBeforeCompile = opPatch;
   mat.needsUpdate = true;
@@ -4811,10 +5090,12 @@ function applyOpSkin(b, skinId) {
   }
   // visors pick up the skin's accent (dark glass with a glow on the fancy ones)
   for (const m of b.visorMats || []) { m.emissive.copy(_skinCol.set(L.m >= 7 ? cs[1] : L.m >= 5 ? cs[2] : '#3a4250')).convertSRGBToLinear().multiplyScalar(L.m >= 7 ? 2.2 : .8); }
+  if (b.kitAcc) b.kitAcc.color.copy(lin(sk.acc || (OP_KITS[b.opId] || {}).acc || '#888888'));
 }
 // what bots wear: mostly everyday camo, now and then something rare (so you see what's out there to earn)
-function randomSkin() {
+function randomSkin(opId) {
   const r = Math.random(), pick = list => list[Math.floor(Math.random()*list.length)].id;
+  if (OP_KITS[opId] && r < .65) { const own = OP_SKINS.filter(s => s.op === opId); return Math.random() < .5 ? own[0].id : pick(own); }
   if (r < .04) return pick(OP_SKINS.filter(s => s.mst));
   if (r < .12) return pick(OP_SKINS.filter(s => s.p || s.stat));
   if (r < .32) return pick(OP_SKINS.filter(s => s.lv > 15));
@@ -6150,7 +6431,7 @@ function resetMatch() {
   teamScore[0] = teamScore[1] = 0; firstBlood = false; saidMinute = false; matchXP = 0; xpStart = xpTotal; matchUnlocks.length = 0;
   Object.assign(PS, { shots: 0, hits: 0, heads: 0, best: 0, medals: {}, deathsNoKill: 0, lastKillT: -10, multi: 0, killer: null });
   assignTeams();
-  if (!NET.on) bots.forEach(b => setOperator(b, randomOp(), randomSkin()));
+  if (!NET.on) bots.forEach(b => { const op = randomOp(); setOperator(b, op, randomSkin(op)); });
   fighters.forEach(f => { f.kills = 0; f.deaths = 0; f.assists = 0; f.confirms = 0; f.denies = 0; f.caps = 0; f.streak = 0; f.gg = 0; f.alive = false; });
   spawnSides = computeSides(); openingSpawn = true; usedOpen.clear();
   fighters.forEach(f => respawn(f));
@@ -6285,7 +6566,12 @@ const newSkins = () => { try { return new Set(JSON.parse(store.get('boomNewSkins
 function renderOperator() {
   const c = careerOf(xpTotal), fresh = newSkins();
   $('ops').innerHTML = OP_IDS.map(id => `<button data-op="${id}" class="${myOp === id ? 'on' : ''}">${OPS[id].name}<small>${OPS[id].note || 'Operator'}</small></button>`).join('');
-  [...$('ops').children].forEach(b => b.onclick = () => { myOp = b.dataset.op; store.set('boomOp', myOp); opChanged(); renderOperator(); updatePreview(); });
+  [...$('ops').children].forEach(b => b.onclick = () => {
+    myOp = b.dataset.op; store.set('boomOp', myOp);
+    const cur = OP_SKIN[mySkin]; if (!cur || (cur.op && cur.op !== myOp) || (OP_KITS[myOp] && mySkin === 'standard')) { mySkin = OP_KITS[myOp] ? OP_KIT_DEFAULT[myOp] : 'standard'; store.set('boomOpSkin', mySkin); }
+    opChanged(); renderOperator(); updatePreview();
+  });
+  const mine = OP_SKINS.filter(x => x.op === myOp).concat(OP_SKINS.filter(x => !x.op && !(OP_KITS[myOp] && x.id === 'standard')));
   const sk = OP_SKIN[mySkin] || OP_SKIN.standard;
   $('opName').textContent = OPS[myOp] ? OPS[myOp].name : 'Vanguard';
   $('opSkinName').innerHTML = `${sk.name} · <span class="tier-${skinTier(sk)}">${TIER_NAME[skinTier(sk)]}</span>`;
@@ -6293,7 +6579,7 @@ function renderOperator() {
   $('skCount').textContent = `· ${owned} / ${OP_SKINS.length} unlocked`;
   const nu = nextUnlock();
   $('skReq').innerHTML = nu ? `Next unlock: <b>${nu.sk.name}</b> · ${nu.req}` : 'Every career skin unlocked. Legend.';
-  $('skins').innerHTML = OP_SKINS.map(x => {
+  $('skins').innerHTML = mine.map(x => {
     const lock = !skinUnlocked(x, c);
     return `<button data-sk="${x.id}" class="t-${skinTier(x)} ${mySkin === x.id ? 'on' : ''} ${lock ? 'locked' : ''} ${!lock && fresh.has(x.id) ? 'new' : ''}" style="background:${skinSwatch(x)}" title="${x.name} · ${TIER_NAME[skinTier(x)]}${lock ? ' · ' + skinReq(x) : ''}"></button>`;
   }).join('');
@@ -7540,7 +7826,7 @@ Promise.all([detectRefresh().then(hz => { targetFps = Math.round(hz); bootMark('
   if (!opOk(myOp)) myOp = 'vanguard';
   if (!skinUnlocked(OP_SKIN[mySkin] || OP_SKIN.standard)) mySkin = 'standard';
   bots = brBotList().map(([n, c]) => makeBot(n, c));
-  bots.forEach(b => { setOperator(b, randomOp(), randomSkin()); b.lvTag = botLv(); });
+  bots.forEach(b => { const op = randomOp(); setOperator(b, op, randomSkin(op)); b.lvTag = botLv(); });
   KC.avatar = makeBot('You', 0xffb14a); fighters.splice(fighters.indexOf(KC.avatar), 1);   // only ever seen in your killcam
   KC.avatar.group.visible = false; setOperator(KC.avatar, myOp, mySkin); applySleeveSkin();
   const brRoots = brInit();

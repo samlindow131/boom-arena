@@ -1461,19 +1461,78 @@ function isleBranch(x0, y0, z0, x1, y1, z1, r) {
   g.translate(0, L/2, 0); g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize())));
   g.translate(x0, y0, z0); return g;
 }
+// ---- foliage textures: leaf clusters (four variations in a 2x2 atlas, solid in the middle) and pine needles ----
+const ISLE_FOL = {};
+function isleFoliageTex() {
+  if (ISLE_FOL.leaf) return ISLE_FOL;
+  const leaf = mk(512, 512, (g, W) => {
+    g.clearRect(0, 0, W, W);
+    for (let cell = 0; cell < 4; cell++) {
+      const ox = (cell % 2)*256, oy = (cell >> 1)*256, cx = ox + 128, cy = oy + 128;
+      g.fillStyle = 'rgb(150,165,120)'; g.beginPath(); g.arc(cx, cy, 52, 0, 7); g.fill();   // the solid heart of the cluster
+      for (let k = 0; k < 1300; k++) {
+        const a = Math.random()*6.283, r = Math.pow(Math.random(), .62)*112, x = cx + Math.cos(a)*r, y = cy + Math.sin(a)*r;
+        const L = 4 + Math.random()*6, Wd = L*(.4 + Math.random()*.2), v = 160 + Math.random()*95, y2 = .85 + Math.random()*.25;
+        g.save(); g.translate(x, y); g.rotate(a + (Math.random() - .5)*1.6);
+        g.fillStyle = `rgb(${Math.round(v*.86)},${Math.round(v*y2)},${Math.round(v*.62)})`;
+        g.beginPath(); g.ellipse(0, 0, L, Wd, 0, 0, 7); g.fill();
+        g.strokeStyle = 'rgba(40,60,20,.35)'; g.lineWidth = 1; g.beginPath(); g.moveTo(-L*.8, 0); g.lineTo(L*.8, 0); g.stroke();
+        g.restore();
+      }
+    }
+  });
+  const needle = mk(256, 256, (g, W) => {
+    g.clearRect(0, 0, W, W);
+    g.fillStyle = 'rgb(120,140,100)'; g.fillRect(0, 0, W, W*.62);                                  // the dense upper part of each tier
+    for (let k = 0; k < 2600; k++) {
+      const x = Math.random()*W, y = Math.random()*W*.97, len = 8 + Math.random()*16, a = Math.PI/2 + (Math.random() - .5)*.9;
+      const v = 140 + Math.random()*100;
+      g.strokeStyle = `rgb(${Math.round(v*.78)},${Math.round(v*.95)},${Math.round(v*.7)})`; g.lineWidth = 1 + Math.random();
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a)*len, y + Math.sin(a)*len); g.stroke();
+    }
+  });
+  const tex = (c, rep) => { const t = T(c, 1); t.wrapS = rep ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping; t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = 4; return t; };
+  ISLE_FOL.leaf = tex(leaf, false); ISLE_FOL.needle = tex(needle, true);
+  return ISLE_FOL;
+}
+// a clump of leaf cards around a solid core: ragged and leafy at the edges, never see-through in the middle
+function isleCards(cx, cy, cz, r, n, seed, lo = false) {
+  const geos = [], c = V(cx, cy, cz), q = new THREE.Quaternion(), e = new THREE.Euler();
+  for (let k = 0; k < n; k++) {
+    const a = Math.random()*6.283, b = Math.acos(Math.random()*2 - 1), d = Math.pow(Math.random(), .5)*r*.55;
+    const p = V(Math.sin(b)*Math.cos(a)*d, Math.cos(b)*d*.8, Math.sin(b)*Math.sin(a)*d).add(c), s = r*(.85 + Math.random()*.4)*(lo ? 1.35 : 1);
+    const g = new THREE.PlaneGeometry(s*2, s*2);
+    q.setFromEuler(e.set(Math.random()*6.283, Math.random()*6.283, Math.random()*6.283)); g.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q)); g.translate(p.x, p.y, p.z);
+    const cell = Math.floor(Math.random()*4), u0 = (cell % 2)*.5, v0 = (cell >> 1)*.5, uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i)*.5, v0 + uv.getY(i)*.5);
+    geos.push(g);
+  }
+  const core = new THREE.IcosahedronGeometry(1, lo ? 0 : 1); core.scale(r*.66, r*.58, r*.66); core.translate(cx, cy, cz);
+  const cuv = new Float32Array(core.attributes.position.count*2).fill(.25); core.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
+  geos.push(core);
+  // normals round from the clump's middle (soft, volumetric light on the whole cluster)
+  for (const g of geos) { const p = g.attributes.position, nr = g.attributes.normal; for (let i = 0; i < p.count; i++) { const v = V(p.getX(i) - cx, (p.getY(i) - cy)*1.2 + r*.35, p.getZ(i) - cz).normalize(); nr.setXYZ(i, v.x, v.y, v.z); } }
+  return isleMergeUV(geos);
+}
+// merge geometries keeping their uv (isleMerge drops it)
+function isleMergeUV(list) {
+  const out = isleMerge(list), uv = new Float32Array(out.attributes.position.count*2); let o = 0;
+  for (const g of list) { const n = g.attributes.position.count; if (g.attributes.uv) uv.set(g.attributes.uv.array.subarray(0, n*2), o*2); o += n; }
+  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); return out;
+}
 // broadleaf: trunk with a few limbs and 5-7 clumps; leaf colour darker at the bottom and the core
 function isleOak(seed, leaf, lo = false) {
   const H = 3.2 + (seed % 3)*.4, R = 2.1, base = isleLin(leaf), barkC = isleLin(0x5b4330);
   const wood = [isleTrunk(H, .3, .17, .25, seed, lo)];
-  const clumps = [isleClump(0, H + R*.75, 0, R*(lo ? 1.15 : .95), seed, .2, lo)];
+  const clumps = [isleCards(0, H + R*.75, 0, R*(lo ? 1.15 : .95), lo ? 7 : 18, seed, lo)];
   const n = lo ? 3 : 5 + (seed % 3);
   for (let k = 0; k < n; k++) {
     const a = k/n*6.283 + seed, rr = R*(lo ? .7 : rand(.75, 1.05)), y = H + R*(lo ? .45 : rand(.15, .75)), x = Math.cos(a)*rr, z = Math.sin(a)*rr;
-    clumps.push(isleClump(x, y, z, R*(lo ? .85 : rand(.55, .78)), seed + k*3.1, .2, lo));
+    clumps.push(isleCards(x, y, z, R*(lo ? .85 : rand(.55, .78)), lo ? 4 : 13, seed + k*3.1, lo));
     if (k % 2 === 0 && !lo) wood.push(isleBranch(0, H*.75, 0, x*.6, y - .3, z*.6, .1));
   }
   const top = H + R*1.75;
-  const canopy = islePaint(isleMerge(clumps), (x, y, z, nx, ny, nz) => {
+  const canopy = islePaint(isleMergeUV(clumps), (x, y, z, nx, ny, nz) => {
     const ao = clamp(.5 + .32*ny + (y - H)/(top - H)*.35 + Math.hypot(x, z)/R*.12, .35, 1.12), v = .92 + n3(x*.8 + seed, y*.8, z*.8)*.18;
     return [base[0]*ao*v, base[1]*ao*v, base[2]*ao*v*.95];
   });
@@ -1492,11 +1551,15 @@ function islePine(seed, leaf, lo = false) {
       const jag = 1 + (vnoise(a*2.2 + k*7 + seed, k) - .5)*.35*rim + (Math.sin(a*6 + k) > .4 ? .12*rim : 0);
       p.setXYZ(i, x*jag, y0 + y + h/2 - rim*rim*.55, z*jag);   // tips droop
     }
-    g.computeVertexNormals(); tiers.push(g);
+    g.computeVertexNormals();
+    { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*Math.max(3, Math.round(r*2.6)), .02 + uv.getY(i)*.96); }
+    tiers.push(g);
     if (lo) continue;
-    const under = new THREE.CircleGeometry(r*.92, 12); under.rotateX(Math.PI/2); under.translate(0, y0 - .32, 0); tiers.push(under);
+    const under = new THREE.CircleGeometry(r*.8, 12); under.rotateX(Math.PI/2); under.translate(0, y0 - .2, 0);
+    { const uv = under.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, .5, .9); }
+    tiers.push(under);
   }
-  const canopy = islePaint(isleMerge(tiers), (x, y, z, nx, ny) => {
+  const canopy = islePaint(isleMergeUV(tiers), (x, y, z, nx, ny) => {
     const ao = clamp(.55 + .35*ny + y/H*.3 + Math.hypot(x, z)*.08, .32, 1.1), v = .9 + vnoise(x*2 + seed, y*2 + z)*.2;
     return [base[0]*ao*v, base[1]*ao*v, base[2]*ao*v];
   });
@@ -1506,15 +1569,15 @@ function islePine(seed, leaf, lo = false) {
 // birch: slim pale trunk with dark marks, light airy canopy
 function isleBirch(seed, lo = false) {
   const H = 3.4, base = isleLin(0x86a843), clumps = [];
-  for (let k = 0; k < (lo ? 3 : 6); k++) { const a = k*2.2 + seed; clumps.push(isleClump(Math.cos(a)*1.1, H + .3 + k*(lo ? .8 : .42), Math.sin(a)*1.1, lo ? 1.45 : rand(1.05, 1.4), seed + k, .26, lo)); }
-  const canopy = islePaint(isleMerge(clumps), (x, y, z, nx, ny) => { const ao = clamp(.55 + .35*ny + (y - H)/3*.3, .4, 1.15); return [base[0]*ao, base[1]*ao, base[2]*ao]; });
+  for (let k = 0; k < (lo ? 3 : 6); k++) { const a = k*2.2 + seed; clumps.push(isleCards(Math.cos(a)*1.1, H + .3 + k*(lo ? .8 : .42), Math.sin(a)*1.1, lo ? 1.45 : rand(1.05, 1.4), lo ? 4 : 11, seed + k, lo)); }
+  const canopy = islePaint(isleMergeUV(clumps), (x, y, z, nx, ny) => { const ao = clamp(.55 + .35*ny + (y - H)/3*.3, .4, 1.15); return [base[0]*ao, base[1]*ao, base[2]*ao]; });
   const trunk = islePaint(isleTrunk(H + 2, .15, .07, .18, seed, lo), (x, y, z) => { const mark = vnoise(y*7, Math.atan2(z, x)*2 + seed) > .6 ? .15 : 1; return [.52*mark, .5*mark, .45*mark]; });
   return { canopy, trunk, h: H + 3 };
 }
 function isleBushGeo(seed, lo = false) {
   const base = isleLin(0x4a7a2c), list = [];
-  for (let k = 0; k < (lo ? 2 : 3); k++) { const a = k*2.1 + seed; list.push(isleClump(Math.cos(a)*.45, .55 + k*.12, Math.sin(a)*.45, lo ? .72 : rand(.55, .75), seed + k, .22, lo)); }
-  return islePaint(isleMerge(list), (x, y, z, nx, ny) => { const ao = clamp(.45 + .4*ny + y*.25, .3, 1.1); return [base[0]*ao, base[1]*ao, base[2]*ao]; });
+  for (let k = 0; k < (lo ? 2 : 3); k++) { const a = k*2.1 + seed; list.push(isleCards(Math.cos(a)*.45, .55 + k*.12, Math.sin(a)*.45, lo ? .72 : rand(.55, .75), lo ? 3 : 9, seed + k, lo)); }
+  return islePaint(isleMergeUV(list), (x, y, z, nx, ny) => { const ao = clamp(.45 + .4*ny + y*.25, .3, 1.1); return [base[0]*ao, base[1]*ao, base[2]*ao]; });
 }
 function isleBoulderGeo(seed) {
   const g = new THREE.SphereGeometry(1, 12, 9), p = g.attributes.position;
@@ -1548,7 +1611,9 @@ function isleLodSet(mine, mats, cols, hiGeo, loGeo, mat, hiTrunk, loTrunk, trunk
 // boulders between. Thousands of trees: the ones within ~150 m use the detailed models (and cast shadows), the
 // rest a light version of the same tree; which is which is sorted again as you move.
 function isleForest() {
-  const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88, metalness: 0 });
+  const F = isleFoliageTex();
+  const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .8, metalness: 0, map: F.leaf, alphaTest: .5, alphaToCoverage: true, side: THREE.DoubleSide });
+  const needleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: 0, map: F.needle, alphaTest: .5, alphaToCoverage: true, side: THREE.DoubleSide });
   const barkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
   const stoneMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92, metalness: 0 });
   const kinds = [
@@ -1581,7 +1646,7 @@ function isleForest() {
       o.matrix.toArray(mats, i*16); col.setRGB(rand(.86, 1.08), rand(.92, 1.08), rand(.8, 1.05)).toArray(cols, i*3);
       if (!mine[i][4]) { const r = (type === 'pine' ? .5 : type === 'birch' ? .32 : .6)*s; solid(x, z, r, r, 4*s, 'wood', false, gy - .2); }
     });
-    lod.push(isleLodSet(mine, mats, cols, hi.canopy, lo.canopy, leafMat, hi.trunk, lo.trunk, barkMat, 110, 700));
+    lod.push(isleLodSet(mine, mats, cols, hi.canopy, lo.canopy, type === 'pine' ? needleMat : leafMat, hi.trunk, lo.trunk, barkMat, 110, 700));
   });
   ISLE.trees = spots;
   isleForestFloor(spots);
@@ -1626,7 +1691,7 @@ function isleForest() {
   }
   rocks.forEach((list, k) => {
     const m = new THREE.InstancedMesh(rockG[k], stoneMat, list.length);
-    list.forEach(([x, z, s], i) => { o.position.set(x, isleH(x, z) - .1*s, z); o.rotation.set(0, rand(0, 6), 0); o.scale.setScalar(s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
+    list.forEach(([x, z, s], i) => { o.position.set(x, isleH(x, z) - .1*s, z); o.rotation.set(0, rand(0, 6), 0); o.scale.setScalar(s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); const v = rand(.34, .5); m.setColorAt(i, col.setRGB(v*1.04, v, v*.9)); });
     m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m);
   });
 }
